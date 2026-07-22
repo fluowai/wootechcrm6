@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.git
+.gitignore
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+supabase_schema.sql

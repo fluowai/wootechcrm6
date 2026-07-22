@@ -1,9 +1,40 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { supabaseAdmin } from "./src/lib/supabase.js";
+import { addScrapingJob, redisConnection } from "./src/lib/queue.js";
+import "./src/lib/worker.js"; // Initialize Background Workers
+import { Server } from "socket.io";
+import http from "http";
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
+// Redis Subscriber para o Whatsmeow (Go)
+const redisSubscriber = redisConnection.duplicate();
+redisSubscriber.subscribe("whatsapp_events", (err) => {
+  if (err) console.error("Erro ao assinar canal Redis:", err);
+});
+
+redisSubscriber.on("message", (channel, message) => {
+  if (channel === "whatsapp_events") {
+    try {
+      const data = JSON.parse(message);
+      // Aqui, o node repassa instantaneamente o evento para o frontend via WebSocket
+      io.emit("whatsapp_event", data);
+    } catch (e) {
+      console.error("Erro no parse do Redis Message", e);
+    }
+  }
+});
+
+io.on("connection", (socket) => {
+  console.log("🟢 Cliente Frontend conectado via WebSocket:", socket.id);
+  socket.on("disconnect", () => console.log("🔴 Cliente desconectado:", socket.id));
+});
 const PORT = 3000;
 
 app.use(express.json());
@@ -32,6 +63,46 @@ function getAIClient(): GoogleGenAI {
 // Healthcheck
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", service: "Wootech CRM Engine", timestamp: new Date().toISOString() });
+});
+
+// ==========================================
+// SUPABASE API ROUTES
+// ==========================================
+
+// Get all companies
+app.get("/api/companies", async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from("companies").select("*").order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// AUTOMATION & SCRAPING (BULLMQ)
+// ==========================================
+
+// Trigger Google Maps Scraper Job
+app.post("/api/scrape", async (req, res) => {
+  try {
+    const { keyword, location } = req.body;
+    if (!keyword || !location) {
+      return res.status(400).json({ success: false, error: "Missing keyword or location" });
+    }
+    
+    // Adiciona o job na fila do BullMQ
+    const job = await addScrapingJob("google-maps-scrape", { keyword, location });
+    
+    res.json({ 
+      success: true, 
+      message: "Scraping job added to queue", 
+      jobId: job.id 
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // AI Comercial Endpoint (Gemini 3.6 Flash)
@@ -282,8 +353,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Wootech CRM Server running on http://0.0.0.0:${PORT}`);
+  // Atenção: agora rodamos 'server.listen' em vez de 'app.listen' por causa do Socket.io
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 Wootech CRM Server (com WebSocket) rodando em http://0.0.0.0:${PORT}`);
   });
 }
 

@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # 1. Nosso CRM Principal (Vite + Express)
+  crm-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wootech-crm
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SCRAPER_API_URL=http://google-maps-scraper:8000
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_API_URL=http://whatsapp-service:8080
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wootechcrm.rule=Host(`crm.suaempresa.com`)"
+      - "traefik.http.routers.wootechcrm.entrypoints=websecure"
+      - "traefik.http.routers.wootechcrm.tls.certresolver=letsencrypt"
+      - "traefik.http.services.wootechcrm.loadbalancer.server.port=3000"
+    depends_on:
+      - postgres
+      - redis
+      - whatsapp-service
+
+  # 2. Banco de Dados Relacional
+  postgres:
+    image: postgres:15-alpine
+    container_name: crm-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-crm_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 3. Redis (Para Filas de Automação no Código Node.js)
+  redis:
+    image: redis:7-alpine
+    container_name: crm-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # 4. Google Maps Scraper (Gosom)
+  google-maps-scraper:
+    image: gosom/google-maps-scraper:latest
+    container_name: gmaps-scraper
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+
+  # 5. Browserless (Para uso do Playwright / Cheerio Scripts)
+  browserless:
+    image: browserless/chrome:latest
+    container_name: browserless
+    restart: always
+    ports:
+      - "3001:3000"
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=300000
+      - TOKEN=${BROWSERLESS_TOKEN:-my-secret-token}
+
+  # 6. Whatsmeow Microservice (Go)
+  whatsapp-service:
+    build:
+      context: ./whatsapp-service
+      dockerfile: Dockerfile
+    container_name: whatsapp-service
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_URL=redis:6379
+    depends_on:
+      - redis
+    volumes:
+      - whatsapp_data:/app
+
+volumes:
+  postgres_data:
+  redis_data:
+  whatsapp_data:

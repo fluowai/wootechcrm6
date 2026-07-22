@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -16,39 +16,49 @@ import { EnrichmentModal } from './components/enrichment/EnrichmentModal';
 import { NewDealModal } from './components/modals/NewDealModal';
 import { NewCompanyModal } from './components/modals/NewCompanyModal';
 import { NewContactModal } from './components/modals/NewContactModal';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastProvider, useToast } from './contexts/ToastContext';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { supabase } from './lib/supabase';
 
 import {
   INITIAL_STAGES,
   INITIAL_SALES_REPS,
-  INITIAL_COMPANIES,
-  INITIAL_CONTACTS,
-  INITIAL_DEALS,
-  INITIAL_TASKS,
-  INITIAL_WHATSAPP_SESSIONS,
-  INITIAL_WHATSAPP_CHATS,
-  INITIAL_MESSAGES,
-  INITIAL_QUICK_REPLIES,
   INITIAL_AUTOMATIONS
 } from './data/mockData';
 
-import { Company, Deal, SalesRep, TaskActivity, ProspectingResultItem, LeadStageId, WhatsAppMessage, AutomationFlow } from './types';
+import { Company, Deal, SalesRep, TaskActivity, ProspectingResultItem, LeadStageId, AutomationFlow } from './types';
 
 export default function App() {
+  return (
+    <ToastProvider>
+      <AuthProvider>
+        <ErrorBoundary>
+          <ProtectedRoute>
+            <AppContent />
+          </ProtectedRoute>
+        </ErrorBoundary>
+      </AuthProvider>
+    </ToastProvider>
+  );
+}
+
+function AppContent() {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
-  // Hydrated State
-  const [stages] = useState(INITIAL_STAGES);
+  // Hydrated State from Supabase
+  const [stages] = useState(INITIAL_STAGES); // Keep stages static for now
   const [reps, setReps] = useState<SalesRep[]>(INITIAL_SALES_REPS);
-  const [companies, setCompanies] = useState<Company[]>(INITIAL_COMPANIES);
-  const [contacts, setContacts] = useState(INITIAL_CONTACTS);
-  const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
-  const [tasks, setTasks] = useState<TaskActivity[]>(INITIAL_TASKS);
-  const [waSessions] = useState(INITIAL_WHATSAPP_SESSIONS);
-  const [waChats, setWaChats] = useState(INITIAL_WHATSAPP_CHATS);
-  const [waMessages, setWaMessages] = useState<Record<string, WhatsAppMessage[]>>(INITIAL_MESSAGES);
-  const [quickReplies] = useState(INITIAL_QUICK_REPLIES);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [tasks, setTasks] = useState<TaskActivity[]>([]);
   const [automations, setAutomations] = useState<AutomationFlow[]>(INITIAL_AUTOMATIONS);
 
   // Modals
@@ -57,171 +67,170 @@ export default function App() {
   const [showNewCompanyModal, setShowNewCompanyModal] = useState(false);
   const [showNewContactModal, setShowNewContactModal] = useState(false);
 
+  // Load Data on Mount
+  useEffect(() => {
+    if (!user) return;
+    async function loadData() {
+      const [compRes, dealRes, contRes, taskRes] = await Promise.all([
+        supabase.from('companies').select('*').order('created_at', { ascending: false }),
+        supabase.from('deals').select('*').order('created_at', { ascending: false }),
+        supabase.from('contacts').select('*').order('created_at', { ascending: false }),
+        supabase.from('tasks').select('*').order('created_at', { ascending: false })
+      ]);
+
+      if (compRes.data) setCompanies(compRes.data as any);
+      if (dealRes.data) {
+        // Map snake_case to camelCase for the UI if needed
+        const mappedDeals = dealRes.data.map(d => ({
+          ...d,
+          companyId: d.company_id,
+          companyName: d.company_name,
+          stageId: d.stage_id,
+          expectedRevenue: d.expected_revenue,
+          contactName: d.contact_name,
+          contactWhatsApp: d.contact_whatsapp,
+          contactEmail: d.contact_email,
+        }));
+        setDeals(mappedDeals as any);
+      }
+      if (contRes.data) setContacts(contRes.data as any);
+      if (taskRes.data) setTasks(taskRes.data as any);
+    }
+    loadData();
+  }, [user]);
+
   // Handlers
-  const handleMoveDeal = (dealId: string, newStageId: LeadStageId, winReason?: string, lossReason?: string) => {
+  const handleMoveDeal = async (dealId: string, newStageId: LeadStageId, winReason?: string, lossReason?: string) => {
+    // Optimistic UI Update
     setDeals((prev) =>
-      prev.map((d) => {
-        if (d.id === dealId) {
-          return {
-            ...d,
-            stageId: newStageId,
-            winReason: winReason || d.winReason,
-            lossReason: lossReason || d.lossReason,
-            updatedAt: new Date().toISOString(),
-            history: [
-              ...d.history,
-              {
-                id: `h-${Date.now()}`,
-                type: 'stage_changed',
-                title: 'Mudança de Etapa',
-                description: `Avançado para a etapa ${newStageId.toUpperCase()}`,
-                author: 'Carlos Andrade',
-                createdAt: new Date().toISOString()
-              }
-            ]
-          };
-        }
-        return d;
-      })
+      prev.map((d) => d.id === dealId ? { ...d, stageId: newStageId, winReason, lossReason } : d)
     );
+    
+    // Supabase Update
+    const { error } = await supabase.from('deals').update({
+      stage_id: newStageId,
+      win_reason: winReason,
+      loss_reason: lossReason
+    }).eq('id', dealId);
+
+    if (error) toast({ title: 'Erro ao mover negócio', description: error.message, variant: 'destructive' });
   };
 
-  const handleImportProspectingCompany = (item: ProspectingResultItem, autoEnrich: boolean) => {
-    const newCompany: Company = {
-      id: `comp-gmb-${Date.now()}`,
-      razaoSocial: item.nomeEmpresa + ' LTDA',
-      nomeFantasia: item.nomeEmpresa,
-      cnpj: '11.222.333/0001-99',
+  const handleImportProspectingCompany = async (item: ProspectingResultItem, autoEnrich: boolean) => {
+    if (!user) return;
+    
+    const dbCompany = {
+      user_id: user.id,
+      razao_social: item.nomeEmpresa + ' LTDA',
+      nome_fantasia: item.nomeEmpresa,
+      cnpj: `temp-${Date.now()}`,
       situacao: 'ATIVA',
-      cnaePrincipal: { code: '6201-5/01', text: item.categoria },
-      capitalSocial: 650000,
-      fundacao: '2020-04-10',
+      cnae_code: '0000-0/00',
+      cnae_text: item.categoria,
+      capital_social: 0,
+      fundacao: new Date().toISOString().split('T')[0],
       porte: 'EPP',
-      naturezaJuridica: '206-2 - Sociedade Empresária Limitada',
+      natureza_juridica: 'N/A',
       endereco: {
         logradouro: item.endereco,
-        numero: '100',
-        bairro: 'Centro',
         cidade: item.cidade,
         estado: item.estado,
-        cep: '80000-000',
         lat: item.lat,
         lng: item.lng
       },
       website: item.website,
       telefones: [item.telefone],
-      emails: [`contato@${item.nomeEmpresa.toLowerCase().replace(/[^a-z0-9]/g, '')}.com.br`],
+      emails: [`contato@temp.com`],
       observacoes: 'Lead importado via Prospecção Google Meu Negócio.',
-      tags: ['Google Meu Negócio', 'Prospecção Ativa', item.categoria],
+      tags: ['Google Meu Negócio', item.categoria],
       enriched: autoEnrich,
-      scoreComercial: 88,
-      ratingGMB: item.rating,
-      reviewsCountGMB: item.reviewsCount,
-      placeIdGMB: item.googlePlaceId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      score_comercial: 80,
+      rating_gmb: item.rating,
+      reviews_count_gmb: item.reviewsCount,
+      place_id_gmb: item.googlePlaceId,
     };
 
-    setCompanies((prev) => [newCompany, ...prev]);
+    const { data: insertedComp, error: errComp } = await supabase.from('companies').insert(dbCompany).select().single();
+
+    if (errComp || !insertedComp) {
+       toast({ title: 'Erro', description: errComp?.message, variant: 'destructive' });
+       return;
+    }
+
+    // Convert to frontend model
+    setCompanies(prev => [insertedComp as any, ...prev]);
 
     // Also auto create opportunity in Prospecting stage
-    const newDeal: Deal = {
-      id: `deal-gmb-${Date.now()}`,
-      companyId: newCompany.id,
-      companyName: newCompany.nomeFantasia,
-      title: `Contrato Prospecção GMB - ${newCompany.nomeFantasia}`,
-      value: 24000,
-      probability: 40,
-      expectedRevenue: 9600,
-      stageId: 'prospecting',
-      assignedTo: 'rep-1',
-      contactName: 'Decisor ' + newCompany.nomeFantasia,
-      contactWhatsApp: item.telefone,
-      contactEmail: newCompany.emails[0],
-      timeInStageDays: 1,
+    const dbDeal = {
+      user_id: user.id,
+      company_id: insertedComp.id,
+      company_name: insertedComp.nome_fantasia,
+      title: `Contrato Prospecção GMB - ${insertedComp.nome_fantasia}`,
+      value: 0,
+      probability: 20,
+      expected_revenue: 0,
+      stage_id: 'prospecting',
+      assigned_to: 'rep-1',
+      contact_whatsapp: item.telefone,
       priority: 'high',
       tags: ['Prospecção GMB'],
-      history: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
     };
 
-    setDeals((prev) => [newDeal, ...prev]);
+    const { data: insertedDeal, error: errDeal } = await supabase.from('deals').insert(dbDeal).select().single();
+    if (!errDeal && insertedDeal) {
+      setDeals(prev => [{...insertedDeal, stageId: insertedDeal.stage_id, companyId: insertedDeal.company_id} as any, ...prev]);
+    }
+
+    toast({ title: 'Empresa importada', description: `${item.nomeEmpresa} salva no banco de dados.` });
 
     if (autoEnrich) {
-      setEnrichmentCompany(newCompany);
+      setEnrichmentCompany(insertedComp as any);
     }
   };
 
-  const handleCompleteEnrichment = (updatedCompany: Company) => {
-    setCompanies((prev) =>
-      prev.map((c) => (c.id === updatedCompany.id ? updatedCompany : c))
-    );
-  };
+  const handleCompleteEnrichment = async (updatedCompany: Company) => {
+    // Optimistic
+    setCompanies((prev) => prev.map((c) => (c.id === updatedCompany.id ? updatedCompany : c)));
+    
+    // Update Supabase
+    await supabase.from('companies').update({
+       enriched: true,
+       emails: updatedCompany.emails,
+       telefones: updatedCompany.telefones,
+       tech_stack: updatedCompany.techStack
+    }).eq('id', updatedCompany.id);
 
-  const handleSendWhatsAppMessage = (chatId: string, content: string) => {
-    const newMsg: WhatsAppMessage = {
-      id: `m-${Date.now()}`,
-      chatId,
-      sender: 'user',
-      content,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      status: 'sent'
-    };
-
-    setWaMessages((prev) => ({
-      ...prev,
-      [chatId]: [...(prev[chatId] || []), newMsg]
-    }));
-
-    setWaChats((prev) =>
-      prev.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              lastMessage: content,
-              lastMessageTimestamp: 'Agora',
-              unreadCount: 0
-            }
-          : chat
-      )
-    );
+    toast({ title: 'Enriquecimento concluído', description: `Dados salvos.` });
   };
 
   const handleToggleAutomation = (id: string) => {
-    setAutomations((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, active: !a.active } : a))
-    );
+    setAutomations((prev) => prev.map((a) => (a.id === id ? { ...a, active: !a.active } : a)));
   };
 
-  const handleToggleTask = (id: string) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, status: t.status === 'completed' ? 'pending' : 'completed' }
-          : t
-      )
-    );
+  const handleToggleTask = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if(!task) return;
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+    
+    setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status: newStatus } : t));
+    
+    await supabase.from('tasks').update({ status: newStatus }).eq('id', id);
   };
 
   const handleOpenWhatsAppChat = (phone: string, name: string) => {
     setActiveTab('whatsapp');
   };
 
-  const totalUnreadWhatsApp = waChats.reduce((sum, c) => sum + c.unreadCount, 0);
-
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans antialiased selection:bg-blue-100">
-      {/* Left Sidebar */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
-        unreadWhatsApp={totalUnreadWhatsApp}
+        unreadWhatsApp={0}
       />
 
-      {/* Top Header */}
       <Header
         collapsed={sidebarCollapsed}
         setActiveTab={setActiveTab}
@@ -229,15 +238,10 @@ export default function App() {
         onOpenProspectingModal={() => setActiveTab('prospecting')}
         globalSearchQuery={globalSearchQuery}
         setGlobalSearchQuery={setGlobalSearchQuery}
-        unreadCount={totalUnreadWhatsApp}
+        unreadCount={0}
       />
 
-      {/* Main View Area */}
-      <main
-        className={`pt-20 px-6 transition-all duration-300 ${
-          sidebarCollapsed ? 'ml-16' : 'ml-64'
-        }`}
-      >
+      <main className={`pt-20 px-6 transition-all duration-300 ${sidebarCollapsed ? 'ml-16' : 'ml-64'}`}>
         {activeTab === 'dashboard' && (
           <DashboardView
             deals={deals}
@@ -286,15 +290,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'whatsapp' && (
-          <WhatsAppView
-            sessions={waSessions}
-            chats={waChats}
-            messages={waMessages}
-            quickReplies={quickReplies}
-            onSendMessage={handleSendWhatsAppMessage}
-          />
-        )}
+        {activeTab === 'whatsapp' && <WhatsAppView />}
 
         {activeTab === 'automations' && (
           <AutomationsView
@@ -314,18 +310,11 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'team' && (
-          <TeamView
-            reps={reps}
-            deals={deals}
-            onUpdateReps={(updated) => setReps(updated)}
-          />
-        )}
+        {activeTab === 'team' && <TeamView reps={reps} deals={deals} onUpdateReps={setReps} />}
 
         {activeTab === 'reports' && <ReportsView />}
       </main>
 
-      {/* Global Modals */}
       {enrichmentCompany && (
         <EnrichmentModal
           company={enrichmentCompany}
@@ -346,7 +335,13 @@ export default function App() {
       {showNewCompanyModal && (
         <NewCompanyModal
           onClose={() => setShowNewCompanyModal(false)}
-          onCreateCompany={(comp) => setCompanies((prev) => [comp, ...prev])}
+          onCreateCompany={async (comp) => {
+             // Basic Supabase Insert
+             if(user) {
+                const {data} = await supabase.from('companies').insert({...comp, user_id: user.id}).select().single();
+                if(data) setCompanies(prev => [data as any, ...prev]);
+             }
+          }}
         />
       )}
 
@@ -354,7 +349,12 @@ export default function App() {
         <NewContactModal
           companies={companies}
           onClose={() => setShowNewContactModal(false)}
-          onCreateContact={(cnt) => setContacts((prev) => [cnt, ...prev])}
+          onCreateContact={async (cnt) => {
+             if(user) {
+                const {data} = await supabase.from('contacts').insert({...cnt, user_id: user.id}).select().single();
+                if(data) setContacts(prev => [data as any, ...prev]);
+             }
+          }}
         />
       )}
     </div>
