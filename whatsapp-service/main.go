@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/mattn/go-sqlite3" // needed for init
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -50,15 +50,14 @@ func eventHandler(evt interface{}) {
 
 		groupName := ""
 		if isGroup {
-			groupInfo, err := cli.GetGroupInfo(v.Info.Chat)
+			groupInfo, err := cli.GetGroupInfo(context.Background(), v.Info.Chat)
 			if err == nil {
 				groupName = groupInfo.Name
 			}
 		}
 
-		// Try to fetch profile picture
 		avatarURL := ""
-		pic, err := cli.GetProfilePictureInfo(sender, &whatsmeow.GetProfilePictureParams{})
+		pic, err := cli.GetProfilePictureInfo(context.Background(), sender, &whatsmeow.GetProfilePictureParams{})
 		if err == nil && pic != nil {
 			avatarURL = pic.URL
 		}
@@ -151,8 +150,7 @@ func main() {
 		// Ensure JID format
 		jid := types.NewJID(number, types.DefaultUserServer)
 		
-		// IsOnWhatsApp function call
-		resp, err := cli.IsOnWhatsApp([]types.JID{jid})
+		resp, err := cli.IsOnWhatsApp(context.Background(), []types.JID{jid})
 		if err != nil || len(resp) == 0 {
 			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false})
 			return
