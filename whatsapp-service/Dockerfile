@@ -9,13 +9,14 @@ COPY . .
 ENV CGO_ENABLED=1
 ENV GONOSUMCHECK=*
 ENV GONOSUMDB=*
+ENV GOPROXY=direct
 
-RUN go get go.mau.fi/whatsmeow@latest && \
-    go get github.com/redis/go-redis/v9@latest && \
-    go get github.com/mattn/go-sqlite3@latest && \
-    go get google.golang.org/protobuf@latest && \
-    go mod tidy && \
-    go build -o whatsmeow-service main.go
+RUN go get go.mau.fi/whatsmeow@latest
+RUN go get github.com/redis/go-redis/v9@latest
+RUN go get github.com/mattn/go-sqlite3@latest
+RUN go get google.golang.org/protobuf@latest
+RUN go mod tidy
+RUN go build -o whatsmeow-service main.go
 
 EXPOSE 8080
 
