@@ -13,11 +13,11 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/mattn/go-sqlite3" // needed for init
-	"github.com/tulir/whatsmeow"
-	"github.com/tulir/whatsmeow/store/sqlstore"
-	"github.com/tulir/whatsmeow/types"
-	"github.com/tulir/whatsmeow/types/events"
-	waLog "github.com/tulir/whatsmeow/util/log"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 var cli *whatsmeow.Client
