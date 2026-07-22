@@ -6,7 +6,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: wootech-crm
+    image: ghcr.io/fluowai/wootechcrm6:latest
+    container_name: wootech_crm_app
     restart: always
     ports:
       - "3000:3000"
@@ -83,7 +84,8 @@ services:
     build:
       context: ./whatsapp-service
       dockerfile: Dockerfile
-    container_name: whatsapp-service
+    image: ghcr.io/fluowai/wootechcrm6-whatsapp:latest
+    container_name: wootech_whatsapp_service
     restart: always
     ports:
       - "8080:8080"
