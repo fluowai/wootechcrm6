@@ -1,19 +1,39 @@
-FROM golang:1.22-alpine
+# ==========================================
+# Build Stage
+# ==========================================
+FROM golang:1.22-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev
 
 WORKDIR /app
 
+ENV CGO_ENABLED=1
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GONOSUMDB=*
+ENV GONOSUMCHECK=*
+
+# Copy go.mod and go.sum first for better layer caching
+COPY go.mod go.sum ./
+
+# Download dependencies (cached unless go.mod/go.sum change)
+RUN go mod download
+
+# Copy source code
 COPY . .
 
-ENV CGO_ENABLED=1
-ENV GONOSUMCHECK=*
-ENV GONOSUMDB=*
-ENV GOPROXY=https://proxy.golang.org,direct
-ENV GOFLAGS=-mod=mod
-
-RUN go mod tidy
+# Build the binary
 RUN go build -o whatsmeow-service main.go
+
+# ==========================================
+# Production Stage
+# ==========================================
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /app
+
+COPY --from=builder /app/whatsmeow-service ./whatsmeow-service
 
 EXPOSE 8080
 
