@@ -12,10 +12,9 @@ import (
 	"syscall"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/mattn/go-sqlite3" // needed for init
+	_ "github.com/mattn/go-sqlite3" // CGO driver registration via side-effect
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
@@ -98,12 +97,12 @@ func main() {
 
 	// 2. Configurar Whatsmeow
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
-	container, err := sqlstore.New("sqlite3", "file:examplestore.db?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", "file:examplestore.db?_foreign_keys=on", dbLog)
 	if err != nil {
 		panic(err)
 	}
 
-	deviceStore, err := container.GetFirstDevice()
+	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
 		panic(err)
 	}
@@ -147,10 +146,7 @@ func main() {
 			return
 		}
 
-		// Ensure JID format
-		jid := types.NewJID(number, types.DefaultUserServer)
-		
-		resp, err := cli.IsOnWhatsApp(context.Background(), []types.JID{jid})
+		resp, err := cli.IsOnWhatsApp(context.Background(), []string{number})
 		if err != nil || len(resp) == 0 {
 			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false})
 			return
