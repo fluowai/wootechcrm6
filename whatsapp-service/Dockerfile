@@ -1,7 +1,7 @@
 # ==========================================
 # Build Stage
 # ==========================================
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev
 
@@ -11,6 +11,7 @@ ENV CGO_ENABLED=1
 ENV GOPROXY=https://proxy.golang.org,direct
 ENV GONOSUMDB=*
 ENV GONOSUMCHECK=*
+ENV GOFLAGS=-mod=mod
 
 # Copy go.mod and go.sum first for better layer caching
 COPY go.mod go.sum ./
