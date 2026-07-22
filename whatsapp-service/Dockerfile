@@ -11,7 +11,7 @@ ENV GONOSUMCHECK=*
 ENV GONOSUMDB=*
 ENV GOPROXY=direct
 
-RUN go get go.mau.fi/whatsmeow@latest
+RUN go get github.com/tulir/whatsmeow@latest
 RUN go get github.com/redis/go-redis/v9@latest
 RUN go get github.com/mattn/go-sqlite3@latest
 RUN go get google.golang.org/protobuf@latest
