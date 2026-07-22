@@ -300,6 +300,12 @@ app.post("/api/enrichment/receita", async (req, res) => {
       }
     }
 
+    res.status(400).json({ success: false, error: "Invalid CNPJ or API unavailable" });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Web Crawler & Auditoria de Site / Tecnologias Real
 app.post("/api/enrichment/website", async (req, res) => {
   try {
@@ -322,12 +328,10 @@ app.post("/api/enrichment/website", async (req, res) => {
       console.warn("Website fetch warning:", e);
     }
 
-    // Identificar E-mails via Regex
     const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
     const foundEmails = html.match(emailRegex) || [];
     const uniqueEmails = Array.from(new Set(foundEmails)).filter(e => !e.endsWith('.png') && !e.endsWith('.jpg') && !e.endsWith('.svg'));
 
-    // Identificar Tecnologias no HTML
     const techStack = [];
     if (html.includes('gtm.js') || html.includes('googletagmanager')) techStack.push({ name: 'Google Tag Manager', category: 'analytics' });
     if (html.includes('analytics.js') || html.includes('ga.js') || html.includes('gtag')) techStack.push({ name: 'Google Analytics 4', category: 'analytics' });
@@ -348,64 +352,6 @@ app.post("/api/enrichment/website", async (req, res) => {
       website,
       emails: uniqueEmails.length > 0 ? uniqueEmails : [`contato@${website.replace(/https?:\/\/(www\.)?/, '').split('/')[0]}`],
       techStack
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-        cnaesSecundarios: [
-          { code: '6311-9/00', text: 'Tratamento de dados, provedores de serviços de aplicação' }
-        ],
-        capitalSocial: 1250000,
-        fundacao: '2017-03-15',
-        porte: 'EPP',
-        naturezaJuridica: '206-2 - Sociedade Empresária Limitada',
-        endereco: {
-          logradouro: 'Av. Paulista',
-          numero: '1000',
-          bairro: 'Bela Vista',
-          cidade: 'São Paulo',
-          estado: 'SP',
-          cep: '01310-100'
-        },
-        telefones: ['(11) 3230-9900', '(11) 99123-8899'],
-        emails: ['contato@wootech.com.br', 'financeiro@wootech.com.br'],
-        qsa: [
-          { nome: 'Alexandre Wootech Santos', qualificacao: '49-Sócio-Administrador' },
-          { nome: 'Luciana M. Wootech', qualificacao: '22-Sócio' }
-        ]
-      }
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Enriquecimento Site Crawler
-app.post("/api/enrichment/website", async (req, res) => {
-  try {
-    const { website } = req.body;
-
-    res.json({
-      success: true,
-      website: website || 'https://www.empresa.com.br',
-      techStack: [
-        { name: 'Meta Pixel (Facebook Ads)', category: 'advertising' },
-        { name: 'Google Tag Manager', category: 'analytics' },
-        { name: 'Google Analytics 4', category: 'analytics' },
-        { name: 'WordPress + Elementor', category: 'cms' },
-        { name: 'WhatsApp Web Direct Widget', category: 'marketing' }
-      ],
-      discoveredEmails: ['contato@empresa.com.br', 'vendas@empresa.com.br', 'atendimento@empresa.com.br'],
-      discoveredPhones: ['(11) 98765-4321', '(11) 3322-1100'],
-      discoveredSocials: {
-        instagram: '@empresa_oficial',
-        linkedIn: 'linkedin.com/company/empresa-b2b',
-        facebook: 'facebook.com/empresab2b'
-      },
-      hasContactForm: true,
-      hasWhatsAppWidget: true
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
