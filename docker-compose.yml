@@ -42,8 +42,13 @@ services:
       # AI-BOS Services
       - PAPERCLIP_URL=http://paperclip:4100                   # Agent runtime (interno)
       - PAPERCLIP_SECRET_KEY=${PAPERCLIP_SECRET_KEY:-wootech-paperclip-secret-change-in-prod}
-      - OLLAMA_URL=http://ollama:11434                        # LLM local backup
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+      # AI-BOS: Hermes + Jarvis
+      - HERMES_URL=http://hermes:8642
+      - JARVIS_URL=http://jarvis:8443
+      - HERMES_DASHBOARD_PASS=${HERMES_DASHBOARD_PASS:-admin}
+      - JARVIS_USERNAME=${JARVIS_USERNAME:-admin}
+      - JARVIS_PASSWORD=${JARVIS_PASSWORD:-admin}
+      - JARVIS_SECRET=${JARVIS_SECRET:-wootech-jarvis-secret-change-in-prod}
       # LLM Provider API Keys (fallback chain)
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
@@ -72,7 +77,8 @@ services:
       - cnpj-service
       - colly-service
       - paperclip
-      - ollama
+      - hermes
+      - jarvis
     networks:
       - crm_network
 
@@ -258,29 +264,52 @@ services:
     networks:
       - crm_network
 
-  # ── AI-BOS: Ollama Local LLM (Backup Ultimate) ──────────────
-  # https://github.com/ollama/ollama
-  # LLM local sem rate limits — seguro quando nuvens falham
-  # Modelo padrão: llama3.1:8b (4GB RAM) — configurável via .env
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
+  # ── AI-BOS: Hermes Agent (Self-Hosted LLM Gateway) ─────────
+  # https://github.com/NousResearch/hermes-agent
+  # Gateway mode with OpenRouter backend — zero local inference cost
+  # Dashboard: http://localhost:9119
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes-agent
     restart: always
     ports:
-      - "127.0.0.1:11434:11434"
+      - "127.0.0.1:8642:8642"
+      - "127.0.0.1:9119:9119"
     environment:
-      - OLLAMA_HOST=0.0.0.0
-      - OLLAMA_MODELS=/models
-      - OLLAMA_NUM_PARALLEL=4
-    volumes:
-      - ollama_data:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - HERMES_MODE=gateway
+      - HERMES_API_PORT=8642
+      - HERMES_DASHBOARD_PORT=9119
+      - HERMES_DASHBOARD_PASS=${HERMES_DASHBOARD_PASS:-admin}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - HERMES_LOG_LEVEL=info
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - crm_network
+
+  # ── AI-BOS: Jarvis (Self-Hosted AI Assistant) ─────────────
+  # https://github.com/dev-core-busy/jarvis
+  # Python/FastAPI — VNC, WhatsApp, RAG, Docker integration
+  # Dashboard: http://localhost:8443
+  jarvis:
+    image: dev-core-busy/jarvis:latest
+    container_name: jarvis
+    restart: always
+    ports:
+      - "127.0.0.1:8443:8443"
+    environment:
+      - JARVIS_PORT=8443
+      - JARVIS_USERNAME=${JARVIS_USERNAME:-admin}
+      - JARVIS_PASSWORD=${JARVIS_PASSWORD:-admin}
+      - JARVIS_SECRET=${JARVIS_SECRET:-wootech-jarvis-secret-change-in-prod}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-crm_db}
+    depends_on:
+      - redis
+      - postgres
+    mem_limit: 512m
+    cpus: 1.0
     networks:
       - crm_network
 
@@ -311,4 +340,5 @@ volumes:
   redis_data:
   whatsapp_data:
   gosom_data:
-  ollama_data:
+  hermes_data:
+  jarvis_data:

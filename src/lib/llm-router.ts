@@ -2,12 +2,10 @@
  * LLM Router — Multi-Provider Fallback System
  * 
  * Maximiza uso de provedores gratuitos com fallback automático.
- * Prioridade: Gemini → Groq → OpenRouter → Cerebras → NVIDIA NIM → Mistral → DeepSeek → Ollama local
+ * Prioridade: Gemini → Groq → OpenRouter → Cerebras → NVIDIA NIM → Mistral → DeepSeek → Hermes
  * 
  * Cada provedor tem rate limits diferentes. O router tenta o próximo quando o atual falha.
  */
-
-import { z } from 'zod';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -23,6 +21,7 @@ export interface LLMRequest {
   maxTokens?: number;
   agentId?: string;
   priority?: 'low' | 'normal' | 'high';
+  enableTools?: boolean;
 }
 
 export interface LLMResponse {
@@ -43,7 +42,7 @@ export type LLMProvider =
   | 'mistral'
   | 'deepseek'
   | 'huggingface'
-  | 'ollama'
+  | 'hermes'
   | 'cohere'
   | 'cloudflare'
   | 'puter';
@@ -152,8 +151,19 @@ const PROVIDERS: ProviderConfig[] = [
     free: true,
   },
   {
-    name: 'cohere',
+    name: 'hermes',
     priority: 9,
+    baseUrl: process.env.HERMES_URL || 'http://hermes:8642',
+    apiKeyEnv: '',
+    models: ['hermes-3-llama-3.1-8b', 'hermes-3-llama-3.1-70b', 'hermes-3-llama-3.1-405b'],
+    defaultModel: 'hermes-3-llama-3.1-8b',
+    maxTokensPerRequest: 4096,
+    rateLimitPerMinute: 999,
+    free: true,
+  },
+  {
+    name: 'cohere',
+    priority: 10,
     baseUrl: 'https://api.cohere.com/v2',
     apiKeyEnv: 'COHERE_API_KEY',
     models: ['command-r-plus', 'command-r'],
@@ -164,7 +174,7 @@ const PROVIDERS: ProviderConfig[] = [
   },
   {
     name: 'cloudflare',
-    priority: 10,
+    priority: 11,
     baseUrl: 'https://api.cloudflare.com/client/v4',
     apiKeyEnv: 'CLOUDFLARE_API_KEY',
     models: ['@cf/meta/llama-3.3-70b-instruct-fp16'],
@@ -175,24 +185,13 @@ const PROVIDERS: ProviderConfig[] = [
   },
   {
     name: 'puter',
-    priority: 11,
+    priority: 12,
     baseUrl: 'https://api.puter.com/v1',
     apiKeyEnv: 'PUTER_API_KEY',
     models: ['gpt-4o-mini'],
     defaultModel: 'gpt-4o-mini',
     maxTokensPerRequest: 4096,
     rateLimitPerMinute: 10,
-    free: true,
-  },
-  {
-    name: 'ollama',
-    priority: 12,
-    baseUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-    apiKeyEnv: '',
-    models: ['llama3.1:8b', 'llama3.1:70b', 'mistral:7b', 'codellama:13b'],
-    defaultModel: process.env.OLLAMA_MODEL || 'llama3.1:8b',
-    maxTokensPerRequest: 4096,
-    rateLimitPerMinute: 999,
     free: true,
   },
 ];
@@ -332,40 +331,37 @@ async function callOpenAICompatible(
   };
 }
 
-async function callOllama(req: LLMRequest, config: ProviderConfig): Promise<LLMResponse> {
+async function callHermes(req: LLMRequest, config: ProviderConfig): Promise<LLMResponse> {
   const model = req.model || config.defaultModel;
   const start = Date.now();
 
-  const response = await fetch(`${config.baseUrl}/api/chat`, {
+  const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: req.messages,
-      stream: false,
-      options: {
-        temperature: req.temperature ?? 0.7,
-        num_predict: req.maxTokens ?? config.maxTokensPerRequest,
-      },
+      temperature: req.temperature ?? 0.7,
+      max_tokens: req.maxTokens ?? config.maxTokensPerRequest,
     }),
   });
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Ollama error ${response.status}: ${error}`);
+    throw new Error(`Hermes error ${response.status}: ${error}`);
   }
 
   const data = await response.json();
-  const content = data.message?.content || '';
+  const content = data.choices?.[0]?.message?.content || '';
   const tokens = {
-    input: data.prompt_eval_count || 0,
-    output: data.eval_count || 0,
-    total: (data.prompt_eval_count || 0) + (data.eval_count || 0),
+    input: data.usage?.prompt_tokens || 0,
+    output: data.usage?.completion_tokens || 0,
+    total: data.usage?.total_tokens || 0,
   };
 
   return {
     content,
-    provider: 'ollama',
+    provider: 'hermes',
     model,
     tokens,
     latencyMs: Date.now() - start,
@@ -428,11 +424,63 @@ const PROVIDER_CALLERS: Record<LLMProvider, (req: LLMRequest, config: ProviderCo
   mistral: (req, config) => callOpenAICompatible(req, config, 'mistral'),
   deepseek: (req, config) => callOpenAICompatible(req, config, 'deepseek'),
   huggingface: (req, config) => callOpenAICompatible(req, config, 'huggingface'),
-  ollama: callOllama,
   cohere: callCohere,
   cloudflare: (req, config) => callOpenAICompatible(req, config, 'cloudflare'),
+  hermes: callHermes,
   puter: (req, config) => callOpenAICompatible(req, config, 'puter'),
 };
+
+/**
+ * Load API keys from Supabase ai_llm_providers table.
+ * Called at startup and after provider changes.
+ */
+export async function loadProviderKeysFromDB(): Promise<void> {
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const url = process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !key) return;
+
+    const sb = createClient(url, key);
+    const { data } = await sb
+      .from('ai_llm_providers')
+      .select('provider, api_key_encrypted, enabled')
+      .eq('enabled', true);
+
+    if (!data) return;
+
+    const envMap: Record<string, string> = {
+      gemini: 'GEMINI_API_KEY',
+      groq: 'GROQ_API_KEY',
+      openrouter: 'OPENROUTER_API_KEY',
+      cerebras: 'CEREBRAS_API_KEY',
+      'nvidia-nim': 'NVIDIA_NIM_API_KEY',
+      mistral: 'MISTRAL_API_KEY',
+      deepseek: 'DEEPSEEK_API_KEY',
+      huggingface: 'HUGGINGFACE_API_KEY',
+      cohere: 'COHERE_API_KEY',
+      cloudflare: 'CLOUDFLARE_API_KEY',
+      puter: 'PUTER_API_KEY',
+    };
+
+    const mask = 'wootech-aios-xor';
+    for (const row of data) {
+      const envKey = envMap[row.provider];
+      if (envKey && !process.env[envKey]) {
+        // Decrypt
+        const decoded = Buffer.from(row.api_key_encrypted, 'base64').toString('binary');
+        let decrypted = '';
+        for (let i = 0; i < decoded.length; i++) {
+          decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ mask.charCodeAt(i % mask.length));
+        }
+        process.env[envKey] = decrypted;
+        console.log(`[LLM] Loaded ${row.provider} key from DB`);
+      }
+    }
+  } catch (error) {
+    console.warn('[LLM] Could not load provider keys from DB:', error instanceof Error ? error.message : error);
+  }
+}
 
 /**
  * Generate a completion using the LLM fallback chain.
@@ -445,7 +493,7 @@ export async function generateCompletion(req: LLMRequest): Promise<LLMResponse> 
   const sortedProviders = [...PROVIDERS].sort((a, b) => a.priority - b.priority);
 
   for (const config of sortedProviders) {
-    // Skip if no API key (except Ollama which doesn't need one)
+    // Skip if no API key (except Hermes which uses gateway mode)
     if (config.apiKeyEnv && !process.env[config.apiKeyEnv]) {
       continue;
     }

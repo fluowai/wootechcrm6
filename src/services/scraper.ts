@@ -237,7 +237,7 @@ export async function scrapeWebsiteForEmails(url: string): Promise<WebsiteScrape
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
 
         // Extrair todo o HTML e links da página
-        const { html, links, textContent } = await page.evaluate(() => {
+        const rawData = await page.evaluate(() => {
             const anchors = Array.from(document.querySelectorAll('a'));
             return {
                 html: document.documentElement.innerHTML,
@@ -245,6 +245,8 @@ export async function scrapeWebsiteForEmails(url: string): Promise<WebsiteScrape
                 textContent: document.body?.innerText || '',
             };
         });
+        const { html, textContent } = rawData;
+        const links: Array<{ href: string; text: string }> = rawData.links as Array<{ href: string; text: string }>;
 
         // === EMAILS ===
         const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;

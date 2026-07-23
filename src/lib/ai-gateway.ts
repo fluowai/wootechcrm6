@@ -9,6 +9,8 @@
 
 import { z } from 'zod';
 import { generateCompletion, type LLMRequest, type LLMResponse } from './llm-router';
+import { hermesBridge, type HermesChatRequest, type HermesChatResponse } from './hermes-bridge';
+import { jarvisBridge, type JarvisCommandRequest, type JarvisCommandResponse, type JarvisDelegateRequest, type JarvisDelegateResponse } from './jarvis-bridge';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -291,6 +293,64 @@ class AIGateway {
     conversionRate: number;
   }> {
     return this.request('GET', '/api/metrics/crm');
+  }
+
+  // ─── Hermes Integration ─────────────────────────────────────
+
+  async hermesHealth(): Promise<boolean> {
+    const health = await hermesBridge.healthCheck();
+    return health.status === 'ok';
+  }
+
+  async hermesChat(req: HermesChatRequest): Promise<HermesChatResponse> {
+    return hermesBridge.chat(req);
+  }
+
+  async hermesGetSkills(): Promise<Array<{ name: string; description: string; enabled: boolean }>> {
+    return hermesBridge.getSkills();
+  }
+
+  async hermesExecuteSkill(name: string, prompt: string): Promise<HermesChatResponse> {
+    return hermesBridge.executeSkill(name, prompt);
+  }
+
+  async hermesCreateTask(task: { title: string; description: string; assignee?: string }): Promise<{ id: string; status: string }> {
+    return hermesBridge.createTask(task);
+  }
+
+  async hermesGetModels(): Promise<string[]> {
+    return hermesBridge.getModels();
+  }
+
+  // ─── Jarvis Integration ─────────────────────────────────────
+
+  async jarvisHealth(): Promise<boolean> {
+    const status = await jarvisBridge.healthCheck();
+    return status.status === 'online';
+  }
+
+  async jarvisExecuteCommand(req: JarvisCommandRequest): Promise<JarvisCommandResponse> {
+    return jarvisBridge.executeCommand(req);
+  }
+
+  async jarvisDelegate(req: JarvisDelegateRequest): Promise<JarvisDelegateResponse> {
+    return jarvisBridge.delegate(req);
+  }
+
+  async jarvisSendWhatsApp(to: string, message: string): Promise<{ success: boolean; messageId?: string }> {
+    return jarvisBridge.sendWhatsAppMessage(to, message);
+  }
+
+  async jarvisQueryRAG(query: string, context?: string): Promise<{ answer: string; sources: string[] }> {
+    return jarvisBridge.queryRAG(query, context);
+  }
+
+  async jarvisGetDockerContainers(): Promise<Array<{ name: string; status: string; image: string }>> {
+    return jarvisBridge.getDockerContainers();
+  }
+
+  async jarvisGetStatus(): Promise<{ status: string; version?: string; vncAvailable?: boolean; dockerAvailable?: boolean }> {
+    return jarvisBridge.getStatus();
   }
 }
 

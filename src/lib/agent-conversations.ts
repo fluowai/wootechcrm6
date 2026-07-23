@@ -31,10 +31,10 @@ interface Conversation {
 interface ConversationMessage {
   id: string;
   conversationId: string;
-  agentName: string;
+  agent_name: string;
   content: string;
   metadata: Record<string, unknown>;
-  createdAt: string;
+  created_at: string;
 }
 
 // ─── Conversation Manager ────────────────────────────────────────

@@ -10,8 +10,11 @@ import { Server } from "socket.io";
 import http from "http";
 import aiOsRouter from "./src/routes/ai-os.js";
 import aiOsToolsRouter from "./src/routes/aios-tools.js";
+import hermesRouter from "./src/routes/hermes.js";
+import jarvisRouter from "./src/routes/jarvis.js";
 import { initWebSocket } from "./src/lib/websocket-events.js";
 import { runExecutionEngine } from "./src/lib/execution-engine.js";
+import { loadProviderKeysFromDB } from "./src/lib/llm-router.js";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
@@ -75,6 +78,11 @@ initWebSocket(io);
 setInterval(runExecutionEngine, 5 * 60 * 1000);
 console.log("🤖 AIOS Execution Engine started");
 
+// Load LLM provider keys from Supabase DB
+loadProviderKeysFromDB().then(() => {
+  console.log("[LLM] Provider keys loaded from DB");
+}).catch(() => {});
+
 const PORT = parseInt(process.env.PORT || "3000");
 app.use(express.json());
 
@@ -113,7 +121,8 @@ app.get("/api/health", async (req, res) => {
     checkService("colly",        `${COLLY_SERVICE_URL}/health`),
     checkService("whatsapp",     `${WHATSAPP_API_URL}/health`),
     checkService("paperclip",    `${process.env.PAPERCLIP_URL || "http://localhost:4100"}/health`),
-    checkService("ollama",       `${process.env.OLLAMA_URL || "http://localhost:11434"}/api/tags`),
+    checkService("hermes",       `${process.env.HERMES_URL || "http://localhost:8642"}/health`),
+    checkService("jarvis",       `${process.env.JARVIS_URL || "http://localhost:8443"}/api/health`),
   ]);
 
   res.json({ status: "ok", service: "Wootech CRM Engine", services: checks, timestamp: new Date().toISOString() });
@@ -124,6 +133,8 @@ app.get("/api/health", async (req, res) => {
 // =================================================================
 app.use("/api/ai-os", aiOsRouter);
 app.use("/api/ai-os/tools", aiOsToolsRouter);
+app.use("/api/ai-os/hermes", hermesRouter);
+app.use("/api/ai-os/jarvis", jarvisRouter);
 
 // =================================================================
 // SUPABASE PASSTHROUGH
@@ -180,99 +191,56 @@ app.post("/api/prospecting/gmb", async (req, res) => {
 
     console.log(`🔎 Prospecção GMB: "${query}"`);
 
-    // ── Tentar gosom primeiro ─────────────────────────────────────
-    let gosomResults: any[] = [];
-    let source = "openstreetmap";
-
-    try {
-      const gosomRes = await axios.post(
-        `${SCRAPER_API_URL}/api/v1/search`,
-        { query: [query], depth, lang: "pt-BR" },
-        { timeout: 12000 }
-      );
-
-      const jobId = gosomRes.data?.job_id || gosomRes.data?.id;
-      if (jobId) {
-        // Poll até 30s
-        let elapsed = 0;
-        while (elapsed < 30000) {
-          await new Promise((r) => setTimeout(r, 3000));
-          elapsed += 3000;
-          const pollRes = await axios.get(`${SCRAPER_API_URL}/api/v1/jobs/${jobId}`, { timeout: 8000 });
-          if (pollRes.data?.status === "completed" || pollRes.data?.status === "done") {
-            gosomResults = pollRes.data.results || pollRes.data.data || [];
-            source = "gosom";
-            break;
-          }
-          if (pollRes.data?.status === "failed") break;
-        }
-      }
-    } catch (e: any) {
-      console.warn("Gosom indisponível:", e?.message);
-    }
-
+    // ── Integração com Serper.dev (Google Maps) ───────────────────
+    let source = "serper.dev";
     let formattedResults: any[] = [];
 
-    if (gosomResults.length > 0) {
-      // ── Mapear resultados do gosom ──────────────────────────────
-      formattedResults = gosomResults.map((item: any, idx: number) => {
-        const addr = item.complete_address || {};
-        const cityName = addr.city || addr.borough || cidade || "";
-        const stateCode = addr.state || estado || "";
+    const apiKey = process.env.SERPER_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error("SERPER_API_KEY não está configurada no arquivo .env. Obtenha sua chave em https://serper.dev/api-keys e reinicie o servidor.");
+    }
+
+    try {
+      console.log(`[Serper API] Buscando: ${query}`);
+      const serperRes = await axios.post(
+        "https://google.serper.dev/places",
+        { q: query, gl: "br", hl: "pt-br" },
+        { 
+          headers: { 
+            "X-API-KEY": apiKey, 
+            "Content-Type": "application/json" 
+          },
+          timeout: 15000
+        }
+      );
+
+      const places = serperRes.data.places || [];
+      
+      formattedResults = places.map((item: any, idx: number) => {
         return {
-          googlePlaceId: item.place_id || item.cid || item.data_id || `gosom_${idx}`,
+          googlePlaceId: item.cid || `serper_${idx}`,
           nomeEmpresa: (item.title || "Empresa").toUpperCase(),
           categoria: item.category || categoria || "Serviços",
-          telefone: item.phone || "",
+          telefone: item.phoneNumber || "",
           website: item.website || "",
-          endereco: item.address || `${addr.street || ""}, ${cityName}`.trim(),
-          cidade: cityName,
-          estado: stateCode,
+          endereco: item.address || `${cidade || ""}, ${estado || ""}`,
+          cidade: cidade || "",
+          estado: estado || "",
           lat: item.latitude || 0,
           lng: item.longitude || 0,
           rating: item.rating || 0,
-          reviewsCount: item.review_count || 0,
-          photos: item.images?.slice(0, 3) || (item.thumbnail ? [item.thumbnail] : []),
-          horarioFuncionamento: item.open_hours || undefined,
+          reviewsCount: item.ratingCount || 0,
+          photos: [], // A API places do serper não traz photos array detalhado
+          horarioFuncionamento: undefined,
           alreadyInCRM: false,
-          source: "gosom",
+          source: "serper.dev",
         };
       });
-    } else {
-      // ── Fallback: OpenStreetMap Nominatim ─────────────────────
-      const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&extratags=1&limit=25`;
-      try {
-        const osmRes = await fetch(osmUrl, { headers: { "User-Agent": "WootechCRM/1.0 (contact@wootech.com.br)" } });
-        if (osmRes.ok) {
-          const osmData = await osmRes.json() as any[];
-          formattedResults = osmData.map((item: any, idx: number) => {
-            const address = item.address || {};
-            const city = address.city || address.town || address.village || cidade || "";
-            const uf = address.state_code?.toUpperCase() || estado || "";
-            return {
-              googlePlaceId: `osm_${item.place_id}_${idx}`,
-              nomeEmpresa: (item.namedetails?.name || item.name || item.display_name.split(",")[0]).toUpperCase(),
-              categoria: categoria || item.type || "Empresa B2B",
-              telefone: item.extratags?.phone || item.extratags?.["contact:phone"] || "",
-              website: item.extratags?.website || item.extratags?.["contact:website"] || "",
-              endereco: `${address.road || ""}, ${address.house_number || ""} - ${city}, ${uf}`.trim(),
-              cidade: city,
-              estado: uf,
-              lat: parseFloat(item.lat),
-              lng: parseFloat(item.lon),
-              rating: +(4.3 + (idx * 0.1) % 0.6).toFixed(1),
-              reviewsCount: 30 + idx * 24,
-              photos: [],
-              horarioFuncionamento: item.extratags?.opening_hours || undefined,
-              alreadyInCRM: false,
-              source: "openstreetmap",
-            };
-          });
-          source = "openstreetmap";
-        }
-      } catch (e) {
-        console.warn("OpenStreetMap também falhou:", e);
-      }
+      console.log(`[Serper API] Encontrados: ${formattedResults.length} locais.`);
+    } catch (e: any) {
+      console.error("Erro na API Serper:", e?.response?.data || e.message);
+      throw new Error("Falha ao buscar empresas no Serper.dev: " + (e?.response?.data?.message || e.message));
     }
 
     res.json({

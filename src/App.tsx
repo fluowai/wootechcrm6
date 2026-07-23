@@ -78,7 +78,19 @@ function AppContent() {
         supabase.from('tasks').select('*').order('created_at', { ascending: false })
       ]);
 
-      if (compRes.data) setCompanies(compRes.data as any);
+      if (compRes.data) {
+        const mappedCompanies = compRes.data.map(c => ({
+          ...c,
+          nomeFantasia: c.nome_fantasia,
+          razaoSocial: c.razao_social,
+          scoreComercial: c.score_comercial,
+          ratingGMB: c.rating_gmb,
+          reviewsCountGMB: c.reviews_count_gmb,
+          placeIdGMB: c.place_id_gmb,
+          cnaePrincipal: { code: c.cnae_code, text: c.cnae_text },
+        }));
+        setCompanies(mappedCompanies as any);
+      }
       if (dealRes.data) {
         // Map snake_case to camelCase for the UI if needed
         const mappedDeals = dealRes.data.map(d => ({

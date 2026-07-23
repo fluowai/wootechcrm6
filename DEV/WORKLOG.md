@@ -1,5 +1,101 @@
 # Worklog — AI-BOS Project
 
+## 2026-07-23 — Hermes + Jarvis Integration
+
+### Changed
+- **Docker Compose**: Removed Ollama service, added Hermes Agent + Jarvis
+  - Hermes: `nousresearch/hermes-agent:latest` (512MB, 1.0 CPU)
+  - Jarvis: `dev-core-busy/jarvis:latest` (512MB, 1.0 CPU)
+  - Both on `crm_network`, ports 127.0.0.1 only
+- **LLM Router**: Removed Ollama (priority 12), added Hermes (priority 9)
+  - Hermes uses gateway mode with OpenRouter backend (zero local inference)
+  - Priority chain: Gemini → Groq → OpenRouter → Cerebras → NVIDIA → Mistral → DeepSeek → HuggingFace → **Hermes** → Cohere → Cloudflare → Puter
+- **New Files**:
+  - `src/lib/hermes-bridge.ts` — Hermes API client (chat, skills, tasks, models)
+  - `src/lib/jarvis-bridge.ts` — Jarvis API client (commands, delegate, WhatsApp, RAG, Docker)
+  - `src/routes/hermes.ts` — Express routes for Hermes integration
+  - `src/routes/jarvis.ts` — Express routes for Jarvis integration
+  - `deploy/deploy-aios.sh` — Deploy script for Hermes + Jarvis
+- **Updated Files**:
+  - `.env.example` — Added HERMES_URL, HERMES_DASHBOARD_PASS, JARVIS_URL, JARVIS_USERNAME, JARVIS_PASSWORD, JARVIS_SECRET
+  - `server.ts` — Mounted hermes/jarvis routers, updated healthcheck (Ollama → Hermes + Jarvis)
+  - `src/lib/ai-gateway.ts` — Added Hermes and Jarvis integration methods
+  - `DEV/HANDOFF.md` — Updated with Phase 6: Hermes + Jarvis Integration
+
+### Why
+- Ollama not installed on VPS — replaced with Hermes (self-hosted LLM gateway) + Jarvis (Python/FastAPI AI assistant)
+- Hermes: Zero local inference cost via OpenRouter backend, skill system, gateway mode
+- Jarvis: VNC, WhatsApp, RAG, Docker management — most complete self-hosted option
+- Memory protection: 512MB limits on both containers to protect existing services
+
+### Verified
+- docker-compose.yml: Ollama removed, Hermes + Jarvis added with memory limits
+- LLM Router: 12 providers + Hermes (no Ollama), priorities correct
+- Bridges: hermes-bridge.ts and jarvis-bridge.ts created
+- Routes: /api/ai-os/hermes/* and /api/ai-os/jarvis/* mounted
+- Healthcheck: Ollama replaced with Hermes + Jarvis
+- Deploy script: deploy/deploy-aios.sh created
+
+### Next
+- Deploy with `./deploy/deploy-aios.sh`
+- Configure .env with API keys
+- Test Hermes dashboard at http://localhost:9119
+- Test Jarvis dashboard at http://localhost:8443
+- Verify health at http://localhost:3000/api/health
+
+## 2026-07-23 — ALL PHASES COMPLETED
+
+### Changed
+- **Phase 1: Foundation**
+  - Paperclip + Ollama Docker services
+  - LLM Router (12 providers)
+  - AI Gateway
+  - API Routes
+  - AICenterView.tsx (7 tabs)
+  - Sidebar updated
+
+- **Phase 2: Agent Organization**
+  - AgentForm.tsx (CRUD with autonomy 0-3)
+  - GoalForm.tsx (Goal management)
+  - ActivityFeed.tsx (Activity feed with filters)
+  - Agent status management
+
+- **Phase 3: Tools & Execution**
+  - CRM Tool Endpoints (query, update, metrics)
+  - Communication Tools (WhatsApp)
+  - Intelligence Tools (Prospecting, Enrichment)
+  - Execution Engine (Heartbeat, Goals, Delegation)
+
+- **Phase 4: Intelligence**
+  - SuggestionsPanel.tsx
+  - InsightsView.tsx (Analytics)
+  - Agent-to-Agent Conversations
+  - Autonomy Enforcement (Levels 0-3)
+
+- **Phase 5: Polish & Production**
+  - WebSocket Events (Real-time)
+  - Token Budget Management
+  - Error Handling (Circuit breaker)
+  - Health Check system
+
+### Why
+- Implementação completa do AI-BOS em 5 fases
+- Sistema de agentes autônomos com LLMs gratuitas
+- Fallback automático entre 12 provedores
+- Autonomia total (nível 3) como padrão
+
+### Verified
+- Todos os componentes criados e integrados
+- Backend: 8 módulos (router, gateway, execution, conversations, autonomy, tokens, websocket, errors)
+- Frontend: 7 componentes (AICenter, Onboarding, AgentForm, GoalForm, ActivityFeed, Suggestions, Insights)
+- Infrastructure: Docker (Paperclip + Ollama), WebSocket, Execution Engine
+
+### Next
+- Deploy em produção
+- Configurar chaves de API dos LLMs
+- Testar fluxo completo
+- Monitorar execution engine
+
 ## 2026-07-23 — Phase 1 Implementation
 
 ### Changed

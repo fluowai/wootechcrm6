@@ -22,6 +22,8 @@ import { GoalForm } from './GoalForm';
 import { ActivityFeed } from './ActivityFeed';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { InsightsView } from './InsightsView';
+import { LLMSettings } from './LLMSettings';
+import { AIChat } from './AIChat';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -94,7 +96,7 @@ interface CompanyProfile {
   primaryGoal: string;
 }
 
-type Tab = 'overview' | 'agents' | 'goals' | 'activities' | 'suggestions' | 'insights' | 'conversations';
+type Tab = 'overview' | 'agents' | 'goals' | 'activities' | 'suggestions' | 'insights' | 'conversations' | 'settings';
 
 // ─── Main Component ──────────────────────────────────────────────
 
@@ -172,6 +174,7 @@ export const AICenterView: React.FC = () => {
 
   const handleOnboardingComplete = async (profile: CompanyProfile) => {
     try {
+      // Save profile
       await fetch('/api/ai-os/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -179,6 +182,23 @@ export const AICenterView: React.FC = () => {
       });
       setCompanyProfile(profile);
       setShowOnboarding(false);
+
+      // Auto-generate agents using LLM
+      setLoading(true);
+      try {
+        const genRes = await fetch('/api/ai-os/generate-agents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile }),
+        });
+        const genData = await genRes.json();
+        if (genData.success) {
+          console.log(`[AI-BOS] Generated ${genData.agents.length} agents via ${genData.llmProvider}`);
+        }
+      } catch (genErr) {
+        console.error('[AI-BOS] Agent generation failed:', genErr);
+      }
+
       fetchData();
     } catch (err) {
       console.error('Error saving profile:', err);
@@ -281,6 +301,7 @@ export const AICenterView: React.FC = () => {
     { id: 'suggestions', label: 'Sugestões', icon: Lightbulb, badge: pendingSuggestions },
     { id: 'insights', label: 'Insights', icon: BarChart3 },
     { id: 'conversations', label: 'Conversas', icon: MessageSquare },
+    { id: 'settings', label: 'Config LLM', icon: Settings },
   ];
 
   // ─── Show Onboarding ────────────────────────────────────────
@@ -416,7 +437,7 @@ export const AICenterView: React.FC = () => {
           {activeTab === 'overview' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">Visão Geral</h3>
+                <h3 className="text-lg font-semibold text-slate-900">WOO — CEO AI</h3>
                 <button
                   onClick={() => setShowOnboarding(true)}
                   className="text-sm text-indigo-600 hover:text-indigo-700"
@@ -424,60 +445,7 @@ export const AICenterView: React.FC = () => {
                   Reconfigurar Empresa
                 </button>
               </div>
-              
-              {/* Quick Actions */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <button 
-                  onClick={() => { setEditingAgent(null); setShowAgentForm(true); }}
-                  className="p-4 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 text-indigo-600 mb-2">
-                    <Plus size={18} />
-                    <span className="font-medium">Criar Agente</span>
-                  </div>
-                  <p className="text-xs text-slate-500">Adicione um novo agente autônomo</p>
-                </button>
-
-                <button 
-                  onClick={() => { setEditingGoal(null); setShowGoalForm(true); }}
-                  className="p-4 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 text-green-600 mb-2">
-                    <Target size={18} />
-                    <span className="font-medium">Definir Meta</span>
-                  </div>
-                  <p className="text-xs text-slate-500">Crie uma nova meta estratégica</p>
-                </button>
-
-                <button 
-                  onClick={() => setActiveTab('insights')}
-                  className="p-4 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 text-purple-600 mb-2">
-                    <BarChart3 size={18} />
-                    <span className="font-medium">Ver Insights</span>
-                  </div>
-                  <p className="text-xs text-slate-500">Analise performance dos agentes</p>
-                </button>
-
-                <button 
-                  onClick={() => setActiveTab('suggestions')}
-                  className="p-4 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 text-amber-600 mb-2">
-                    <Lightbulb size={18} />
-                    <span className="font-medium">Ver Sugestões</span>
-                  </div>
-                  <p className="text-xs text-slate-500">{pendingSuggestions} sugestões pendentes</p>
-                </button>
-              </div>
-
-              {/* Recent Activity */}
-              <ActivityFeed 
-                activities={activities.slice(0, 5)} 
-                onRefresh={fetchData}
-                loading={loading}
-              />
+              <AIChat companyProfile={companyProfile} agents={agents} />
             </div>
           )}
 
@@ -684,6 +652,8 @@ export const AICenterView: React.FC = () => {
               </div>
             </div>
           )}
+
+          {activeTab === 'settings' && <LLMSettings />}
         </div>
       )}
 

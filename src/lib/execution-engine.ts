@@ -8,6 +8,7 @@
 import { supabaseAdmin } from './supabase';
 import { aiGateway } from './ai-gateway';
 import { generateCompletion } from './llm-router';
+import { runAgentTask } from './agentic-loop';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -32,10 +33,11 @@ interface Goal {
   title: string;
   description: string;
   category: string;
-  targetValue: number;
-  currentValue: number;
+  target_value: number;
+  current_value: number;
   status: string;
-  assignedAgentId: string;
+  assigned_agent_id: string;
+  deadline?: string;
 }
 
 // ─── Heartbeat Processor ─────────────────────────────────────────
@@ -276,16 +278,16 @@ export async function delegateTasks(): Promise<void> {
   console.log('[ExecutionEngine] Delegating tasks...');
 
   try {
-    // Find the CEO agent
-    const { data: ceo, error: ceoError } = await supabaseAdmin
+    // Find the CTO agent
+    const { data: cto, error: ctoError } = await supabaseAdmin
       .from('ai_agents')
       .select('*')
-      .eq('role', 'CEO')
+      .eq('role', 'CTO')
       .eq('status', 'active')
       .single();
 
-    if (ceoError || !ceo) {
-      console.log('[ExecutionEngine] No active CEO agent found');
+    if (ctoError || !cto) {
+      console.log('[ExecutionEngine] No active CTO agent found');
       return;
     }
 
@@ -294,7 +296,7 @@ export async function delegateTasks(): Promise<void> {
       .from('ai_agents')
       .select('*')
       .eq('status', 'active')
-      .neq('id', ceo.id);
+      .neq('id', cto.id);
 
     if (agentsError || !agents || agents.length === 0) {
       console.log('[ExecutionEngine] No sub-agents found');
@@ -314,7 +316,7 @@ export async function delegateTasks(): Promise<void> {
       .eq('status', 'new')
       .limit(10);
 
-    // Build context for CEO
+    // Build context for CTO
     const context = {
       subAgents: agents.map(a => ({
         name: a.name,
@@ -327,14 +329,14 @@ export async function delegateTasks(): Promise<void> {
       timestamp: new Date().toISOString(),
     };
 
-    // Ask CEO to delegate tasks
+    // Ask CTO to delegate tasks
     const response = await generateCompletion({
       messages: [
         {
           role: 'system',
-          content: `Você é o CEO Digital de uma empresa.
-Sua missão é orquestrar os agentes subordinate para atingir os objetivos da empresa.
-Analise o contexto e delegue tarefas para os agentes apropriados.
+          content: `Você é o CTO (Chief Technology Officer) de Inteligência Artificial de uma empresa.
+Sua missão é orquestrar os agentes subordinados para atingir os objetivos operacionais e estratégicos.
+O Dono/CEO da empresa já definiu a visão geral. Analise o contexto e delegue tarefas para os agentes apropriados.
 
 Retorne um JSON com as delegações:
 {
@@ -354,7 +356,7 @@ Se não houver nada para delegar, retorne {"delegations": []}`
           content: `Contexto para delegação:\n${JSON.stringify(context, null, 2)}`
         }
       ],
-      agentId: ceo.id,
+      agentId: cto.id,
     });
 
     // Parse and execute delegations
@@ -374,7 +376,7 @@ Se não houver nada para delegar, retorne {"delegations": []}`
 
             if (targetAgent) {
               // Log the delegation
-              await logActivity(ceo.id, ceo.name, 'delegation',
+              await logActivity(cto.id, cto.name, 'delegation',
                 `Delegou tarefa para ${targetAgent.name}: ${delegation.task}`,
                 {
                   targetAgentId: targetAgent.id,
@@ -383,15 +385,15 @@ Se não houver nada para delegar, retorne {"delegations": []}`
                   priority: delegation.priority,
                 });
 
-              // Log activity for the target agent too
+              // Log activity for the target agent too (mark as pending so it can be picked up)
               await logActivity(targetAgent.id, targetAgent.name, 'execution',
-                `Tarefa recebida do CEO: ${delegation.task}`,
+                `Tarefa recebida do CTO: ${delegation.task}`,
                 {
-                  sourceAgentId: ceo.id,
-                  sourceAgentName: ceo.name,
+                  sourceAgentId: cto.id,
+                  sourceAgentName: cto.name,
                   task: delegation.task,
                   priority: delegation.priority,
-                });
+                }, 'pending');
             }
           }
         }
@@ -401,6 +403,76 @@ Se não houver nada para delegar, retorne {"delegations": []}`
     }
   } catch (err) {
     console.error('[ExecutionEngine] Error delegating tasks:', err);
+  }
+}
+
+// ─── Task Execution (Agentic Loop) ───────────────────────────────
+
+/**
+ * Process pending tasks for all active agents
+ */
+export async function processAgentTasks(): Promise<void> {
+  console.log('[ExecutionEngine] Processing pending tasks for agents...');
+  
+  try {
+    // Get all pending execution tasks
+    const { data: pendingTasks, error } = await supabaseAdmin
+      .from('ai_activities')
+      .select('*, ai_agents(*)')
+      .eq('status', 'pending')
+      .eq('action_type', 'execution')
+      .order('created_at', { ascending: true })
+      .limit(10);
+
+    if (error) throw error;
+    if (!pendingTasks || pendingTasks.length === 0) {
+      return;
+    }
+
+    for (const task of pendingTasks) {
+      const agent = task.ai_agents;
+      if (!agent || agent.status !== 'active') continue;
+
+      console.log(`[ExecutionEngine] Agent ${agent.name} executing task: ${task.title}`);
+
+      try {
+        // Mark as in-progress
+        await supabaseAdmin
+          .from('ai_activities')
+          .update({ status: 'in_progress' })
+          .eq('id', task.id);
+
+        const taskDesc = typeof task.metadata?.task === 'string' ? task.metadata.task : task.title;
+        const conversationId = task.metadata?.conversation_id as string | undefined;
+
+        // Execute task using ReAct Loop with tools
+        const result = await runAgentTask(agent, taskDesc, conversationId);
+
+        // Update task as completed with result
+        await supabaseAdmin
+          .from('ai_activities')
+          .update({ 
+            status: 'completed', 
+            description: result,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', task.id);
+
+      } catch (execErr) {
+        console.error(`[ExecutionEngine] Task execution failed for agent ${agent.name}:`, execErr);
+        // Mark as failed
+        await supabaseAdmin
+          .from('ai_activities')
+          .update({ 
+            status: 'failed', 
+            description: `Erro: ${execErr instanceof Error ? execErr.message : 'Unknown'}`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', task.id);
+      }
+    }
+  } catch (err) {
+    console.error('[ExecutionEngine] Error processing agent tasks:', err);
   }
 }
 
@@ -491,14 +563,11 @@ export async function runExecutionEngine(): Promise<void> {
     // Delegate tasks
     await delegateTasks();
 
+    // Process agent tasks (Agentic loop)
+    await processAgentTasks();
+
     console.log('[ExecutionEngine] Execution cycle completed');
   } catch (err) {
     console.error('[ExecutionEngine] Execution cycle failed:', err);
   }
-}
-
-// Start execution engine if this file is run directly
-if (require.main === module) {
-  console.log('[ExecutionEngine] Starting standalone execution engine...');
-  setInterval(runExecutionEngine, 5 * 60 * 1000); // Run every 5 minutes
 }

@@ -171,6 +171,70 @@ router.get('/metrics', async (_req: Request, res: Response) => {
 // ─── Communication Tools ─────────────────────────────────────────
 
 /**
+ * WhatsApp webhook — receives events from whatsmeow Go service
+ */
+router.post('/whatsapp/webhook', async (req: Request, res: Response) => {
+  try {
+    const event = req.body;
+    console.log('[WhatsApp Webhook]', event.type, event.sender || '');
+
+    if (event.type === 'message' && event.sender && event.content) {
+      // Save incoming message to Supabase
+      await supabaseAdmin.from('whatsapp_messages').insert({
+        contact_phone: event.sender,
+        contact_name: event.pushName || '',
+        content: event.content,
+        direction: 'inbound',
+        status: 'received',
+        metadata: {
+          chatId: event.chatId,
+          isGroup: event.isGroup,
+          groupName: event.groupName,
+          avatar: event.avatar,
+        },
+      }).then(({ error }) => {
+        if (error) console.warn('[WhatsApp Webhook] Save message error:', error.message);
+      });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[WhatsApp Webhook] Error:', error);
+    res.json({ ok: true }); // Always 200 for webhooks
+  }
+});
+
+/**
+ * WhatsApp status — check connection state
+ */
+router.get('/whatsapp/status', async (_req: Request, res: Response) => {
+  try {
+    const whatsappUrl = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
+    const response = await fetch(`${whatsappUrl}/status`, { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    res.json({ success: true, data });
+  } catch (error) {
+    res.json({ success: true, data: { connected: false, status: 'offline', hasQR: false } });
+  }
+});
+
+/**
+ * WhatsApp QR code — get pairing QR
+ */
+router.get('/whatsapp/qr', async (_req: Request, res: Response) => {
+  try {
+    const whatsappUrl = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
+    const response = await fetch(`${whatsappUrl}/qr`, { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    res.json({ success: true, data });
+  } catch (error) {
+    res.json({ success: false, error: 'WhatsApp service offline' });
+  }
+});
+
+/**
  * Send WhatsApp message via Whatsmeow
  */
 router.post('/whatsapp/send', async (req: Request, res: Response) => {
@@ -218,7 +282,9 @@ router.get('/whatsapp/validate', async (req: Request, res: Response) => {
 
     const whatsappUrl = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
     
-    const response = await fetch(`${whatsappUrl}/validate?number=${encodeURIComponent(number)}`);
+    const response = await fetch(`${whatsappUrl}/validate?number=${encodeURIComponent(number)}`, {
+      signal: AbortSignal.timeout(5000),
+    });
 
     if (!response.ok) {
       throw new Error(`WhatsApp API error: ${response.status}`);

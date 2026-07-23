@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,38 +10,74 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
-	"github.com/redis/go-redis/v9"
-	_ "github.com/mattn/go-sqlite3" // CGO driver registration via side-effect
 	"go.mau.fi/whatsmeow"
+	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	_ "modernc.org/sqlite"
 )
 
 var cli *whatsmeow.Client
-var redisClient *redis.Client
 var ctx = context.Background()
+
+// In-memory store for QR and status
+var (
+	mu            sync.RWMutex
+	currentQR     string
+	connStatus    = "disconnected"
+	webhookURL    string
+	pendingMsgs   = make(map[string]chan bool)
+)
+
+type EventPayload struct {
+	Type      string      `json:"type"`
+	ChatID    string      `json:"chatId,omitempty"`
+	Sender    string      `json:"sender,omitempty"`
+	PushName  string      `json:"pushName,omitempty"`
+	IsGroup   bool        `json:"isGroup,omitempty"`
+	GroupName string      `json:"groupName,omitempty"`
+	Avatar    string      `json:"avatar,omitempty"`
+	Content   string      `json:"content,omitempty"`
+	Timestamp time.Time   `json:"timestamp,omitempty"`
+	Data      interface{} `json:"data,omitempty"`
+}
+
+func postWebhook(payload EventPayload) {
+	if webhookURL == "" {
+		return
+	}
+	data, _ := json.Marshal(payload)
+	go func() {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Post(webhookURL, "application/json", strings.NewReader(string(data)))
+		if err != nil {
+			fmt.Printf("[Webhook] Error: %v\n", err)
+			return
+		}
+		resp.Body.Close()
+	}()
+}
 
 func eventHandler(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
-		// Se for broadcast ou status, ignora
 		if v.Info.Category == "status" || v.Info.Category == "broadcast" {
 			return
 		}
 
 		sender := v.Info.Sender.ToNonAD()
-		isGroup := v.Info.IsGroup
-
 		phone := sender.User
-		
-		// Ensure standard 55 formatting
+
 		if !strings.HasPrefix(phone, "55") && len(phone) >= 10 {
 			phone = "55" + phone
 		}
-		
+
 		pushName := v.Info.PushName
 		content := v.Message.GetConversation()
 		if content == "" {
@@ -48,97 +85,209 @@ func eventHandler(evt interface{}) {
 		}
 
 		groupName := ""
-		if isGroup {
-			groupInfo, err := cli.GetGroupInfo(context.Background(), v.Info.Chat)
+		if v.Info.IsGroup {
+			groupInfo, err := cli.GetGroupInfo(ctx, v.Info.Chat)
 			if err == nil {
 				groupName = groupInfo.Name
 			}
 		}
 
 		avatarURL := ""
-		pic, err := cli.GetProfilePictureInfo(context.Background(), sender, &whatsmeow.GetProfilePictureParams{})
+		pic, err := cli.GetProfilePictureInfo(ctx, sender, &whatsmeow.GetProfilePictureParams{})
 		if err == nil && pic != nil {
 			avatarURL = pic.URL
 		}
 
-		payload := map[string]interface{}{
-			"type":      "message",
-			"chatId":    v.Info.Chat.String(),
-			"sender":    phone,
-			"pushName":  pushName,
-			"isGroup":   isGroup,
-			"groupName": groupName,
-			"avatar":    avatarURL,
-			"content":   content,
-			"timestamp": v.Info.Timestamp,
-		}
-
-		jsonData, _ := json.Marshal(payload)
-		redisClient.Publish(ctx, "whatsapp_events", string(jsonData))
+		postWebhook(EventPayload{
+			Type:      "message",
+			ChatID:    v.Info.Chat.String(),
+			Sender:    phone,
+			PushName:  pushName,
+			IsGroup:   v.Info.IsGroup,
+			GroupName: groupName,
+			Avatar:    avatarURL,
+			Content:   content,
+			Timestamp: v.Info.Timestamp,
+		})
 
 	case *events.Connected:
 		fmt.Println("Connected to WhatsApp!")
-		redisClient.Publish(ctx, "whatsapp_events", `{"type":"connected"}`)
+		mu.Lock()
+		connStatus = "connected"
+		mu.Unlock()
+		postWebhook(EventPayload{Type: "connected"})
+
 	case *events.LoggedOut:
 		fmt.Println("Logged out of WhatsApp!")
-		redisClient.Publish(ctx, "whatsapp_events", `{"type":"logged_out"}`)
+		mu.Lock()
+		connStatus = "logged_out"
+		currentQR = ""
+		mu.Unlock()
+		postWebhook(EventPayload{Type: "logged_out"})
+
+	case *events.Disconnected:
+		fmt.Println("Disconnected from WhatsApp!")
+		mu.Lock()
+		connStatus = "disconnected"
+		mu.Unlock()
+		postWebhook(EventPayload{Type: "disconnected"})
 	}
 }
 
 func main() {
-	// 1. Configurar Redis
-	redisURL := os.Getenv("REDIS_URL")
-	if redisURL == "" {
-		redisURL = "redis:6379"
+	// 1. Config
+	webhookURL = os.Getenv("WEBHOOK_URL")
+	if webhookURL == "" {
+		webhookURL = "http://localhost:3010/api/whatsapp/webhook"
 	}
-	redisClient = redis.NewClient(&redis.Options{
-		Addr: redisURL,
-	})
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 
-	// 2. Configurar Whatsmeow
+	// 2. Setup whatsmeow with pure-Go SQLite
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
-	container, err := sqlstore.New(context.Background(), "sqlite3", "file:examplestore.db?_foreign_keys=on", dbLog)
+
+	// Open database with modernc sqlite driver
+	// Use _pragma=foreign_keys(1) to enable FK at connection level
+	db, err := sql.Open("sqlite", "file:whatsapp-store.db?_pragma=foreign_keys(1)")
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to open SQLite database: %v", err))
 	}
 
-	deviceStore, err := container.GetFirstDevice(context.Background())
+	container := sqlstore.NewWithDB(db, "sqlite", dbLog)
+
+	// Run schema upgrades (creates tables if needed)
+	err = container.Upgrade(ctx)
 	if err != nil {
-		panic(err)
+		db.Close()
+		panic(fmt.Sprintf("Failed to upgrade database: %v", err))
+	}
+	if err != nil {
+		panic(fmt.Sprintf("Failed to open SQLite store: %v", err))
+	}
+
+	deviceStore, err := container.GetFirstDevice(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get device: %v", err))
 	}
 
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	cli = whatsmeow.NewClient(deviceStore, clientLog)
 	cli.AddEventHandler(eventHandler)
 
+	// 3. Connect
 	if cli.Store.ID == nil {
-		qrChan, _ := cli.GetQRChannel(context.Background())
+		fmt.Println("No device found — need QR code pairing")
+		mu.Lock()
+		connStatus = "pairing"
+		mu.Unlock()
+
+		qrChan, _ := cli.GetQRChannel(ctx)
 		err = cli.Connect()
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("Failed to connect: %v", err))
 		}
-		for evt := range qrChan {
-			if evt.Event == "code" {
-				fmt.Println("QR code:", evt.Code)
-				// Publish QR Code to Redis so Node.js can read it
-				payload := map[string]string{
-					"type": "qr_code",
-					"code": evt.Code,
+		go func() {
+			for evt := range qrChan {
+				if evt.Event == "code" {
+					fmt.Println("QR code received")
+					mu.Lock()
+					currentQR = evt.Code
+					mu.Unlock()
+					postWebhook(EventPayload{
+						Type: "qr_code",
+						Data: evt.Code,
+					})
+				} else {
+					fmt.Printf("Login event: %s\n", evt.Event)
 				}
-				jsonPayload, _ := json.Marshal(payload)
-				redisClient.Publish(ctx, "whatsapp_events", string(jsonPayload))
-			} else {
-				fmt.Println("Login event:", evt.Event)
 			}
-		}
+		}()
 	} else {
+		fmt.Println("Device found — connecting directly")
 		err = cli.Connect()
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("Failed to connect: %v", err))
 		}
 	}
 
-	// 3. API Simples para checar validade do número e enviar mensagem
+	// 4. HTTP API
+	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		mu.RLock()
+		defer mu.RUnlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"connected":   connStatus == "connected",
+			"status":      connStatus,
+			"hasQR":       currentQR != "",
+			"phoneNumber": getPhoneNumber(),
+		})
+	})
+
+	http.HandleFunc("/qr", func(w http.ResponseWriter, r *http.Request) {
+		mu.RLock()
+		defer mu.RUnlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"qr":   currentQR,
+			"status": connStatus,
+		})
+	})
+
+	http.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			To      string `json:"to"`
+			Message string `json:"message"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.To == "" || req.Message == "" {
+			http.Error(w, "to and message are required", http.StatusBadRequest)
+			return
+		}
+
+		// Format JID
+		to := strings.ReplaceAll(req.To, "+", "")
+		to = strings.ReplaceAll(to, " ", "")
+		to = strings.ReplaceAll(to, "-", "")
+		if !strings.HasPrefix(to, "55") {
+			to = "55" + to
+		}
+		jid := types.JID{
+			User:   to,
+			Server: types.DefaultUserServer,
+		}
+
+		msg := &waProto.Message{
+			Conversation: &req.Message,
+		}
+
+		_, err := cli.SendMessage(ctx, jid, msg)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"to":      to,
+		})
+	})
+
 	http.HandleFunc("/validate", func(w http.ResponseWriter, r *http.Request) {
 		number := r.URL.Query().Get("number")
 		if number == "" {
@@ -146,31 +295,51 @@ func main() {
 			return
 		}
 
-		resp, err := cli.IsOnWhatsApp(context.Background(), []string{number})
+		resp, err := cli.IsOnWhatsApp(ctx, []string{number})
 		if err != nil || len(resp) == 0 {
+			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{"valid": false})
 			return
 		}
 
 		result := resp[0]
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"valid": result.IsIn,
 			"jid":   result.JID.String(),
 		})
 	})
 
-	// Iniciar servidor HTTP
+	http.HandleFunc("/disconnect", func(w http.ResponseWriter, r *http.Request) {
+		cli.Disconnect()
+		mu.Lock()
+		connStatus = "disconnected"
+		currentQR = ""
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	})
+
+	// 5. Start server
 	go func() {
-		fmt.Println("API rodando na porta 8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
+		fmt.Printf("WhatsApp API running on port %s\n", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
 			log.Fatal(err)
 		}
 	}()
 
-	// Graceful shutdown
+	// 6. Graceful shutdown
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 
+	fmt.Println("Shutting down...")
 	cli.Disconnect()
+}
+
+func getPhoneNumber() string {
+	if cli.Store.ID != nil {
+		return cli.Store.ID.User
+	}
+	return ""
 }
