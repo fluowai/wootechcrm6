@@ -6,6 +6,15 @@ services:
   # =========================================================================
   frontend:
     image: ghcr.io/fluowai/wootech-crm-frontend:latest
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=wootech1"
+      - "traefik.http.routers.wootech_crm6_frontend.rule=Host(`woo.wootech.com.br`)"
+      - "traefik.http.routers.wootech_crm6_frontend.entrypoints=websecure"
+      - "traefik.http.routers.wootech_crm6_frontend.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.wootech_crm6_frontend.priority=10"
+      - "traefik.http.routers.wootech_crm6_frontend.service=wootech_crm6_frontend"
+      - "traefik.http.services.wootech_crm6_frontend.loadbalancer.server.port=80"
     environment:
       VITE_API_URL: "same-origin"
       VITE_LIVEKIT_URL: ""
@@ -19,18 +28,18 @@ services:
       replicas: 1
       restart_policy:
         condition: any
-      labels:
-        - "traefik.enable=true"
-        - "traefik.docker.network=wootech1"
-        - "traefik.http.routers.wootech_crm6_frontend.rule=Host(`woo.wootech.com.br`)"
-        - "traefik.http.routers.wootech_crm6_frontend.entrypoints=websecure"
-        - "traefik.http.routers.wootech_crm6_frontend.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.wootech_crm6_frontend.priority=10"
-        - "traefik.http.routers.wootech_crm6_frontend.service=wootech_crm6_frontend"
-        - "traefik.http.services.wootech_crm6_frontend.loadbalancer.server.port=80"
 
   api:
     image: ghcr.io/fluowai/wootech-crm-api:latest
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=wootech1"
+      - "traefik.http.routers.wootech_crm6_api.rule=Host(`woo.wootech.com.br`) && (PathPrefix(`/api`) || PathPrefix(`/lp`))"
+      - "traefik.http.routers.wootech_crm6_api.entrypoints=websecure"
+      - "traefik.http.routers.wootech_crm6_api.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.wootech_crm6_api.priority=20"
+      - "traefik.http.routers.wootech_crm6_api.service=wootech_crm6_api"
+      - "traefik.http.services.wootech_crm6_api.loadbalancer.server.port=10000"
     environment:
       NODE_ENV: "production"
       PORT: "10000"
@@ -93,15 +102,6 @@ services:
         failure_action: rollback
       rollback_config:
         order: stop-first
-      labels:
-        - "traefik.enable=true"
-        - "traefik.docker.network=wootech1"
-        - "traefik.http.routers.wootech_crm6_api.rule=Host(`woo.wootech.com.br`) && (PathPrefix(`/api`) || PathPrefix(`/lp`))"
-        - "traefik.http.routers.wootech_crm6_api.entrypoints=websecure"
-        - "traefik.http.routers.wootech_crm6_api.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.wootech_crm6_api.priority=20"
-        - "traefik.http.routers.wootech_crm6_api.service=wootech_crm6_api"
-        - "traefik.http.services.wootech_crm6_api.loadbalancer.server.port=10000"
 
 
   # =========================================================================
