@@ -72,3 +72,95 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}-whatsapp:latest
             ghcr.io/${{ github.repository }}-whatsapp:${{ github.sha }}
+
+  build-cnpj:
+    name: Build CNPJ Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push CNPJ image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./cnpj-service
+          file: ./cnpj-service/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-cnpj-service:latest
+            ghcr.io/${{ github.repository }}-cnpj-service:${{ github.sha }}
+
+  build-colly:
+    name: Build Colly Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Colly image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./colly-service
+          file: ./colly-service/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-colly-service:latest
+            ghcr.io/${{ github.repository }}-colly-service:${{ github.sha }}
+
+  build-firecrawl:
+    name: Build Firecrawl Service
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Clone Firecrawl
+        run: git clone https://github.com/mendableai/firecrawl.git ./firecrawl-src
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Firecrawl image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./firecrawl-src/apps/api
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-firecrawl:latest
+            ghcr.io/${{ github.repository }}-firecrawl:${{ github.sha }}
