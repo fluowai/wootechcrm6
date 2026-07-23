@@ -1,7 +1,17 @@
 version: '3.8'
 
+networks:
+  crm_network:
+    driver: bridge
+
+# ==============================================================
+# WOOTECH CRM — STACK COMPLETA DE LEAD INTELLIGENCE
+# 12 ferramentas open source self-hosted
+# ==============================================================
+
 services:
-  # 1. Nosso CRM Principal (Vite + Express)
+
+  # ── 1. CRM App Principal (Vite + Express + BullMQ) ──────────
   crm-app:
     build:
       context: .
@@ -18,9 +28,17 @@ services:
       - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-}
       - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
-      - SCRAPER_API_URL=http://google-maps-scraper:8000
+      # Serviços internos
       - REDIS_URL=redis://redis:6379
-      - WHATSAPP_API_URL=http://whatsapp-service:8080
+      - SCRAPER_API_URL=http://google-maps-scraper:8080        # gosom (1)
+      - BROWSERLESS_URL=ws://browserless:3000                  # Playwright/Puppeteer (7/8)
+      - BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-wootech-token}
+      - FIRECRAWL_URL=http://firecrawl:3002                   # Firecrawl (12)
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-local}
+      - UNSTRUCTURED_URL=http://unstructured:8000              # Unstructured (11)
+      - CNPJ_SERVICE_URL=http://cnpj-service:4000             # CNPJ Pipeline (6)
+      - COLLY_SERVICE_URL=http://colly-service:5000           # Colly Go Crawler (complementar)
+      - WHATSAPP_API_URL=http://whatsapp-service:8080         # Whatsmeow (complementar)
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.wootechcrm.rule=Host(`crm.suaempresa.com`)"
@@ -31,8 +49,15 @@ services:
       - postgres
       - redis
       - whatsapp-service
+      - google-maps-scraper
+      - browserless
+      - firecrawl
+      - cnpj-service
+      - colly-service
+    networks:
+      - crm_network
 
-  # 2. Banco de Dados Relacional
+  # ── 2. PostgreSQL ────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: crm-postgres
@@ -45,8 +70,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crm_network
 
-  # 3. Redis (Para Filas de Automação no Código Node.js)
+  # ── 3. Redis (BullMQ + Pub/Sub WhatsApp) ─────────────────────
   redis:
     image: redis:7-alpine
     container_name: crm-redis
@@ -55,31 +83,143 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - crm_network
 
-  # 4. Google Maps Scraper (Gosom)
+  # ── FERRAMENTA 1: Google Maps Scraper (gosom) ─────────────────
+  # https://github.com/gosom/google-maps-scraper
+  # Extrai: nome, telefone, site, email, lat/lng, avaliações, horário
+  # API: POST /api/v1/search | GET /api/v1/jobs/:id
   google-maps-scraper:
     image: gosom/google-maps-scraper:latest
     container_name: gmaps-scraper
     restart: always
     ports:
-      - "8000:8000"
+      - "8000:8080"
     environment:
-      - PORT=8000
+      - PORT=8080
+      - PLAYWRIGHT_HEADLESS=true
+      - CONCURRENCY=2
+      - DATABASE_URL=${DATABASE_URL:-}
+      - CACHE_DIR=/data/cache
+    volumes:
+      - gosom_data:/data
+    networks:
+      - crm_network
 
-  # 5. Browserless (Para uso do Playwright / Cheerio Scripts)
+  # ── FERRAMENTAS 7+8: Browserless Chrome (Playwright + Puppeteer) ──
+  # https://github.com/microsoft/playwright
+  # https://github.com/puppeteer/puppeteer
+  # Acesso via CDP WebSocket — usado pelo scraper.ts e Crawlee
   browserless:
-    image: browserless/chrome:latest
+    image: ghcr.io/browserless/chromium:latest
     container_name: browserless
     restart: always
     ports:
       - "3001:3000"
     environment:
-      - MAX_CONCURRENT_SESSIONS=10
-      - CONNECTION_TIMEOUT=300000
-      - TOKEN=${BROWSERLESS_TOKEN:-my-secret-token}
+      - CONCURRENT=10
+      - TIMEOUT=60000
+      - TOKEN=${BROWSERLESS_TOKEN:-wootech-token}
+      - QUEUE_LENGTH=20
+      - DEMO_MODE=false
+      - PREBOOT_CHROME=true
+      - KEEP_ALIVE=true
+    shm_size: '2gb'
+    networks:
+      - crm_network
 
-  # 6. Whatsmeow Microservice (Go)
+  # ── FERRAMENTA 9: Crawlee (integrado no enrichment-service Node.js) ──
+  # https://github.com/apify/crawlee
+  # Roda dentro do enrichment-service como library — sem container separado
+
+  # ── FERRAMENTA 10: Cheerio (integrado no enrichment-service Node.js) ──
+  # https://github.com/cheeriojs/cheerio
+  # Roda dentro do enrichment-service como library — sem container separado
+
+  # ── FERRAMENTA 12: Firecrawl (self-hosted) ───────────────────
+  # https://github.com/mendableai/firecrawl
+  # Transforma qualquer site em Markdown/JSON estruturado
+  # API: POST /v1/scrape | POST /v1/crawl
+  firecrawl:
+    image: ghcr.io/mendableai/firecrawl:latest
+    container_name: firecrawl
+    restart: always
+    ports:
+      - "3002:3002"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://browserless:3000
+      - USE_DB_AUTHENTICATION=false
+      - PORT=3002
+      - HOST=0.0.0.0
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-local}
+      - NUM_WORKERS_PER_QUEUE=4
+      - BULL_AUTH_KEY=wootech-firecrawl
+    depends_on:
+      - redis
+      - browserless
+    networks:
+      - crm_network
+
+  # ── FERRAMENTA 11: Unstructured (extração de PDFs, DOCX, XLSX) ──
+  # https://github.com/Unstructured-IO/unstructured
+  # API: POST /general/v0/general  Content-Type: multipart/form-data
+  unstructured:
+    image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
+    container_name: unstructured
+    restart: always
+    ports:
+      - "8003:8000"
+    environment:
+      - PORT=8000
+      - UNSTRUCTURED_API_KEY=${UNSTRUCTURED_API_KEY:-local}
+    networks:
+      - crm_network
+
+  # ── FERRAMENTA 6: CNPJ Service (Node.js — Receita Federal) ───
+  # Pipeline CNPJ self-hosted: BrasilAPI + cache PostgreSQL local
+  # Rotas: GET /cnpj/:cnpj  |  GET /cnpj/:cnpj/socios  |  GET /cnpj/search?nome=
+  cnpj-service:
+    build:
+      context: ./cnpj-service
+      dockerfile: Dockerfile
+    container_name: cnpj-service
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-crm_db}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - crm_network
+
+  # ── Colly Crawler Service (Go) ────────────────────────────────
+  # Colly: https://github.com/gocolly/colly
+  # Crawler ultra-rápido em Go — complementa o Browserless
+  # API: POST /crawl { url, depth, extractEmails, extractPhones }
+  colly-service:
+    build:
+      context: ./colly-service
+      dockerfile: Dockerfile
+    container_name: colly-service
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+    networks:
+      - crm_network
+
+  # ── FERRAMENTA Whatsmeow (Go — WhatsApp) ─────────────────────
+  # https://github.com/tulir/whatsmeow
+  # Valida números + envia mensagens + recebe eventos
+  # API: GET /validate?number=5541999990000
   whatsapp-service:
     build:
       context: ./whatsapp-service
@@ -95,8 +235,11 @@ services:
       - redis
     volumes:
       - whatsapp_data:/app
+    networks:
+      - crm_network
 
 volumes:
   postgres_data:
   redis_data:
   whatsapp_data:
+  gosom_data:

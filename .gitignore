@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Binários Go compilados
+*.exe
+*.exe~
+colly-service/colly-service
+whatsapp-service/whatsapp-service
+
+# cnpj-service node_modules já tem package-lock — ignorar só node_modules
+cnpj-service/node_modules/

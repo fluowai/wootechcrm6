@@ -5,25 +5,39 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { supabaseAdmin } from "./src/lib/supabase.js";
 import { addScrapingJob, redisConnection } from "./src/lib/queue.js";
-import "./src/lib/worker.js"; // Initialize Background Workers
+import "./src/lib/worker.js";
 import { Server } from "socket.io";
 import http from "http";
+import axios from "axios";
+import * as cheerio from "cheerio";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
+import multer from "multer";
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-// Redis Subscriber para o Whatsmeow (Go)
+// ── URLs dos serviços internos ────────────────────────────────────
+const SCRAPER_API_URL     = process.env.SCRAPER_API_URL     || "http://localhost:8000";
+const BROWSERLESS_URL     = process.env.BROWSERLESS_URL     || "ws://localhost:3001";
+const BROWSERLESS_TOKEN   = process.env.BROWSERLESS_TOKEN   || "wootech-token";
+const FIRECRAWL_URL       = process.env.FIRECRAWL_URL       || "http://localhost:3002";
+const FIRECRAWL_API_KEY   = process.env.FIRECRAWL_API_KEY   || "local";
+const UNSTRUCTURED_URL    = process.env.UNSTRUCTURED_URL    || "http://localhost:8003";
+const CNPJ_SERVICE_URL    = process.env.CNPJ_SERVICE_URL    || "http://localhost:4000";
+const COLLY_SERVICE_URL   = process.env.COLLY_SERVICE_URL   || "http://localhost:5000";
+const WHATSAPP_API_URL    = process.env.WHATSAPP_API_URL    || "http://localhost:8080";
+
+// ── Redis Subscriber para o Whatsmeow ────────────────────────────
 const redisSubscriber = redisConnection.duplicate();
 redisSubscriber.subscribe("whatsapp_events", (err) => {
   if (err) console.error("Erro ao assinar canal Redis:", err);
 });
-
 redisSubscriber.on("message", (channel, message) => {
   if (channel === "whatsapp_events") {
     try {
       const data = JSON.parse(message);
-      // Aqui, o node repassa instantaneamente o evento para o frontend via WebSocket
       io.emit("whatsapp_event", data);
     } catch (e) {
       console.error("Erro no parse do Redis Message", e);
@@ -35,41 +49,52 @@ io.on("connection", (socket) => {
   console.log("🟢 Cliente Frontend conectado via WebSocket:", socket.id);
   socket.on("disconnect", () => console.log("🔴 Cliente desconectado:", socket.id));
 });
-const PORT = 3000;
 
+const PORT = parseInt(process.env.PORT || "3000");
 app.use(express.json());
 
-// Initialize Gemini Client safely
+// ── Gemini AI Client ──────────────────────────────────────────────
 let aiClient: GoogleGenAI | null = null;
 function getAIClient(): GoogleGenAI {
   if (!aiClient) {
-    const apiKey = process.env.GEMINI_API_KEY || "";
     aiClient = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
+      apiKey: process.env.GEMINI_API_KEY || "",
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } },
     });
   }
   return aiClient;
 }
 
-// ==========================================
-// API ROUTES
-// ==========================================
+// =================================================================
+// HEALTHCHECK
+// =================================================================
+app.get("/api/health", async (req, res) => {
+  const checks: Record<string, string> = { crm: "ok" };
 
-// Healthcheck
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", service: "Wootech CRM Engine", timestamp: new Date().toISOString() });
+  const checkService = async (name: string, url: string) => {
+    try {
+      await axios.get(url, { timeout: 3000 });
+      checks[name] = "ok";
+    } catch {
+      checks[name] = "offline";
+    }
+  };
+
+  await Promise.allSettled([
+    checkService("gosom",        `${SCRAPER_API_URL}/health`),
+    checkService("firecrawl",    `${FIRECRAWL_URL}/health`),
+    checkService("unstructured", `${UNSTRUCTURED_URL}/healthcheck`),
+    checkService("cnpj",         `${CNPJ_SERVICE_URL}/health`),
+    checkService("colly",        `${COLLY_SERVICE_URL}/health`),
+    checkService("whatsapp",     `${WHATSAPP_API_URL}/health`),
+  ]);
+
+  res.json({ status: "ok", service: "Wootech CRM Engine", services: checks, timestamp: new Date().toISOString() });
 });
 
-// ==========================================
-// SUPABASE API ROUTES
-// ==========================================
-
-// Get all companies
+// =================================================================
+// SUPABASE PASSTHROUGH
+// =================================================================
 app.get("/api/companies", async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from("companies").select("*").order("created_at", { ascending: false });
@@ -80,324 +105,656 @@ app.get("/api/companies", async (req, res) => {
   }
 });
 
-// ==========================================
-// AUTOMATION & SCRAPING (BULLMQ)
-// ==========================================
-
-// Trigger Google Maps Scraper Job
+// =================================================================
+// FERRAMENTA 1: GOOGLE MAPS SCRAPER (gosom)
+// POST /api/scrape — adiciona job assíncrono na fila BullMQ
+// =================================================================
 app.post("/api/scrape", async (req, res) => {
   try {
-    const { keyword, location } = req.body;
+    const { keyword, location, depth = 1 } = req.body;
     if (!keyword || !location) {
-      return res.status(400).json({ success: false, error: "Missing keyword or location" });
+      return res.status(400).json({ success: false, error: "keyword e location são obrigatórios" });
     }
-    
-    // Adiciona o job na fila do BullMQ
-    const job = await addScrapingJob("google-maps-scrape", { keyword, location });
-    
-    res.json({ 
-      success: true, 
-      message: "Scraping job added to queue", 
-      jobId: job.id 
+    const job = await addScrapingJob("google-maps-scrape", { keyword, location, depth });
+    res.json({ success: true, message: "Job de scraping adicionado à fila", jobId: job.id });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/scrape/jobs/:id — status do job
+app.get("/api/scrape/jobs/:id", async (req, res) => {
+  try {
+    const { scraperQueue } = await import("./src/lib/queue.js");
+    const job = await scraperQueue.getJob(req.params.id);
+    if (!job) return res.status(404).json({ success: false, error: "Job não encontrado" });
+    const state = await job.getState();
+    const progress = job.progress;
+    res.json({ success: true, jobId: job.id, state, progress, data: job.data, returnValue: job.returnvalue });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =================================================================
+// PROSPECÇÃO — Google Maps via gosom REST API (síncrono)
+// POST /api/prospecting/gmb
+// =================================================================
+app.post("/api/prospecting/gmb", async (req, res) => {
+  try {
+    const { cidade, estado, categoria, palavraChave, depth = 1 } = req.body;
+    const query = `${categoria || ""} ${palavraChave || ""} ${cidade || ""} ${estado || ""}`.trim();
+
+    console.log(`🔎 Prospecção GMB: "${query}"`);
+
+    // ── Tentar gosom primeiro ─────────────────────────────────────
+    let gosomResults: any[] = [];
+    let source = "openstreetmap";
+
+    try {
+      const gosomRes = await axios.post(
+        `${SCRAPER_API_URL}/api/v1/search`,
+        { query: [query], depth, lang: "pt-BR" },
+        { timeout: 12000 }
+      );
+
+      const jobId = gosomRes.data?.job_id || gosomRes.data?.id;
+      if (jobId) {
+        // Poll até 30s
+        let elapsed = 0;
+        while (elapsed < 30000) {
+          await new Promise((r) => setTimeout(r, 3000));
+          elapsed += 3000;
+          const pollRes = await axios.get(`${SCRAPER_API_URL}/api/v1/jobs/${jobId}`, { timeout: 8000 });
+          if (pollRes.data?.status === "completed" || pollRes.data?.status === "done") {
+            gosomResults = pollRes.data.results || pollRes.data.data || [];
+            source = "gosom";
+            break;
+          }
+          if (pollRes.data?.status === "failed") break;
+        }
+      }
+    } catch (e: any) {
+      console.warn("Gosom indisponível:", e?.message);
+    }
+
+    let formattedResults: any[] = [];
+
+    if (gosomResults.length > 0) {
+      // ── Mapear resultados do gosom ──────────────────────────────
+      formattedResults = gosomResults.map((item: any, idx: number) => {
+        const addr = item.complete_address || {};
+        const cityName = addr.city || addr.borough || cidade || "";
+        const stateCode = addr.state || estado || "";
+        return {
+          googlePlaceId: item.place_id || item.cid || item.data_id || `gosom_${idx}`,
+          nomeEmpresa: (item.title || "Empresa").toUpperCase(),
+          categoria: item.category || categoria || "Serviços",
+          telefone: item.phone || "",
+          website: item.website || "",
+          endereco: item.address || `${addr.street || ""}, ${cityName}`.trim(),
+          cidade: cityName,
+          estado: stateCode,
+          lat: item.latitude || 0,
+          lng: item.longitude || 0,
+          rating: item.rating || 0,
+          reviewsCount: item.review_count || 0,
+          photos: item.images?.slice(0, 3) || (item.thumbnail ? [item.thumbnail] : []),
+          horarioFuncionamento: item.open_hours || undefined,
+          alreadyInCRM: false,
+          source: "gosom",
+        };
+      });
+    } else {
+      // ── Fallback: OpenStreetMap Nominatim ─────────────────────
+      const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&extratags=1&limit=25`;
+      try {
+        const osmRes = await fetch(osmUrl, { headers: { "User-Agent": "WootechCRM/1.0 (contact@wootech.com.br)" } });
+        if (osmRes.ok) {
+          const osmData = await osmRes.json() as any[];
+          formattedResults = osmData.map((item: any, idx: number) => {
+            const address = item.address || {};
+            const city = address.city || address.town || address.village || cidade || "";
+            const uf = address.state_code?.toUpperCase() || estado || "";
+            return {
+              googlePlaceId: `osm_${item.place_id}_${idx}`,
+              nomeEmpresa: (item.namedetails?.name || item.name || item.display_name.split(",")[0]).toUpperCase(),
+              categoria: categoria || item.type || "Empresa B2B",
+              telefone: item.extratags?.phone || item.extratags?.["contact:phone"] || "",
+              website: item.extratags?.website || item.extratags?.["contact:website"] || "",
+              endereco: `${address.road || ""}, ${address.house_number || ""} - ${city}, ${uf}`.trim(),
+              cidade: city,
+              estado: uf,
+              lat: parseFloat(item.lat),
+              lng: parseFloat(item.lon),
+              rating: +(4.3 + (idx * 0.1) % 0.6).toFixed(1),
+              reviewsCount: 30 + idx * 24,
+              photos: [],
+              horarioFuncionamento: item.extratags?.opening_hours || undefined,
+              alreadyInCRM: false,
+              source: "openstreetmap",
+            };
+          });
+          source = "openstreetmap";
+        }
+      } catch (e) {
+        console.warn("OpenStreetMap também falhou:", e);
+      }
+    }
+
+    res.json({
+      success: true,
+      source,
+      query: { cidade, estado, categoria, palavraChave },
+      totalResults: formattedResults.length,
+      results: formattedResults,
+    });
+  } catch (err: any) {
+    console.error("Erro na prospecção GMB:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =================================================================
+// FERRAMENTA 6: CNPJ (via cnpj-service self-hosted)
+// POST /api/enrichment/receita
+// =================================================================
+app.post("/api/enrichment/receita", async (req, res) => {
+  try {
+    const { cnpj } = req.body;
+    const cleanCNPJ = cnpj?.replace(/\D/g, "");
+    if (!cleanCNPJ || cleanCNPJ.length !== 14) {
+      return res.status(400).json({ success: false, error: "CNPJ inválido" });
+    }
+
+    const cnpjRes = await axios.get(`${CNPJ_SERVICE_URL}/cnpj/${cleanCNPJ}`, { timeout: 15000 });
+    if (cnpjRes.data?.success) {
+      const d = cnpjRes.data.data;
+      return res.json({
+        success: true,
+        source: cnpjRes.data.source,
+        cached: cnpjRes.data.cached,
+        data: {
+          razaoSocial: d.razao_social,
+          nomeFantasia: d.nome_fantasia || d.razao_social,
+          cnpj,
+          situacao: d.situacao,
+          cnaePrincipal: d.cnae_principal,
+          capitalSocial: d.capital_social,
+          fundacao: d.data_abertura,
+          porte: d.porte,
+          naturezaJuridica: d.natureza_juridica,
+          endereco: d.endereco,
+          telefones: d.telefones || [],
+          emails: [d.email].filter(Boolean),
+          qsa: d.qsa || [],
+          simples: d.simples,
+          mei: d.mei,
+        },
+      });
+    }
+
+    res.status(502).json({ success: false, error: "CNPJ service não retornou dados" });
+  } catch (err: any) {
+    console.error("Erro CNPJ:", err?.message);
+    // Fallback direto BrasilAPI
+    try {
+      const cleanCNPJ = req.body.cnpj?.replace(/\D/g, "");
+      const bRes = await axios.get(`https://brasilapi.com.br/api/cnpj/v1/${cleanCNPJ}`, { timeout: 8000 });
+      const d = bRes.data;
+      return res.json({
+        success: true,
+        source: "brasilapi-direct",
+        data: {
+          razaoSocial: d.razao_social,
+          nomeFantasia: d.nome_fantasia || d.razao_social,
+          cnpj: req.body.cnpj,
+          situacao: d.descricao_situacao_cadastral || "ATIVA",
+          cnaePrincipal: { codigo: String(d.cnae_fiscal || ""), descricao: d.cnae_fiscal_descricao || "" },
+          capitalSocial: d.capital_social || 0,
+          fundacao: d.data_inicio_atividade || "",
+          porte: d.porte || "EPP",
+          naturezaJuridica: d.natureza_juridica || "",
+          endereco: {
+            logradouro: `${d.descricao_tipo_de_logradouro || ""} ${d.logradouro || ""}`.trim(),
+            numero: d.numero || "S/N",
+            bairro: d.bairro || "",
+            municipio: d.municipio || "",
+            uf: d.uf || "",
+            cep: d.cep || "",
+          },
+          telefones: [d.ddd_telefone_1, d.ddd_telefone_2].filter(Boolean),
+          emails: [d.email].filter(Boolean),
+          qsa: (d.qsa || []).map((s: any) => ({ nome: s.nome_socio, qualificacao: s.qualificacao_socio })),
+        },
+      });
+    } catch {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+});
+
+// GET /api/enrichment/socios/:cnpj — Sócios (QSA) via cnpj-service
+app.get("/api/enrichment/socios/:cnpj", async (req, res) => {
+  try {
+    const cnpj = req.params.cnpj.replace(/\D/g, "");
+    const r = await axios.get(`${CNPJ_SERVICE_URL}/cnpj/${cnpj}/socios`, { timeout: 15000 });
+    res.json(r.data);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =================================================================
+// FERRAMENTAS 7+8+9+10: Website Enrichment
+// Usa Firecrawl → Colly → Browserless+Playwright → fetch+Cheerio
+// POST /api/enrichment/website
+// =================================================================
+app.post("/api/enrichment/website", async (req, res) => {
+  try {
+    const { website } = req.body;
+    if (!website) return res.status(400).json({ success: false, error: "website é obrigatório" });
+
+    console.log(`🕷️ Enriquecendo: ${website}`);
+
+    // ── Tentar Firecrawl (mais completo) ─────────────────────────
+    let emails: string[] = [];
+    let phones: string[] = [];
+    let whatsappLinks: string[] = [];
+    let socialLinks: Record<string, string> = {};
+    let techStack: Array<{ name: string; category: string }> = [];
+    let source = "none";
+
+    try {
+      const fcRes = await axios.post(
+        `${FIRECRAWL_URL}/v1/scrape`,
+        {
+          url: website,
+          formats: ["html", "markdown"],
+          actions: [],
+          onlyMainContent: false,
+          waitFor: 2000,
+        },
+        {
+          headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}`, "Content-Type": "application/json" },
+          timeout: 20000,
+        }
+      );
+
+      if (fcRes.data?.success && (fcRes.data?.data?.html || fcRes.data?.data?.markdown)) {
+        const html = fcRes.data.data.html || "";
+        const $ = cheerio.load(html);
+
+        // Emails
+        const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+        emails = [...new Set([
+          ...$("a[href^='mailto:']").map((_, el) => $(el).attr("href")?.replace("mailto:", "").split("?")[0] || "").toArray(),
+          ...(html.match(emailRegex) || []),
+        ])].filter(e => !e.endsWith(".png") && !e.endsWith(".jpg") && e.includes("@") && e.length < 100).slice(0, 10);
+
+        // Phones
+        $("a[href^='tel:']").each((_, el) => {
+          const phone = $(el).attr("href")?.replace("tel:", "") || "";
+          if (phone) phones.push(phone);
+        });
+
+        // WhatsApp
+        $("a").each((_, el) => {
+          const href = $(el).attr("href") || "";
+          const waMatch = href.match(/wa\.me\/(\d{10,15})/);
+          if (waMatch) whatsappLinks.push(href);
+        });
+
+        // Socials
+        $("a[href]").each((_, el) => {
+          const href = $(el).attr("href") || "";
+          if (href.includes("instagram.com/") && !socialLinks.instagram) socialLinks.instagram = href;
+          if ((href.includes("facebook.com/") || href.includes("fb.com/")) && !socialLinks.facebook) socialLinks.facebook = href;
+          if (href.includes("linkedin.com/") && !socialLinks.linkedin) socialLinks.linkedin = href;
+          if (href.includes("youtube.com/") && !socialLinks.youtube) socialLinks.youtube = href;
+          if ((href.includes("twitter.com/") || href.includes("x.com/")) && !socialLinks.twitter) socialLinks.twitter = href;
+          if (href.includes("tiktok.com/") && !socialLinks.tiktok) socialLinks.tiktok = href;
+        });
+
+        // Tech stack via Cheerio
+        const techDetect = (pattern: string, name: string, cat: string) => {
+          if (html.includes(pattern)) techStack.push({ name, category: cat });
+        };
+        techDetect("wp-content", "WordPress", "cms");
+        techDetect("elementor", "Elementor", "cms");
+        techDetect("cdn.shopify", "Shopify", "ecommerce");
+        techDetect("wixsite", "Wix", "cms");
+        techDetect("webflow", "Webflow", "cms");
+        techDetect("squarespace", "Squarespace", "cms");
+        techDetect("googletagmanager", "Google Tag Manager", "analytics");
+        techDetect("fbevents.js", "Meta Pixel", "advertising");
+        techDetect("gtag(", "Google Analytics 4", "analytics");
+        techDetect("hotjar", "Hotjar", "analytics");
+        techDetect("rdstation", "RD Station", "crm");
+        techDetect("hubspot", "HubSpot", "crm");
+        techDetect("intercom", "Intercom", "crm");
+        techDetect("next.js", "Next.js", "framework");
+        techDetect("nuxt", "Nuxt.js", "framework");
+
+        techStack = [...new Map(techStack.map(t => [t.name, t])).values()];
+        source = "firecrawl";
+      }
+    } catch (e: any) {
+      console.warn("Firecrawl indisponível:", e?.message);
+    }
+
+    // ── Fallback: Colly Service ─────────────────────────────────
+    if (emails.length === 0 && source === "none") {
+      try {
+        const collyRes = await axios.post(
+          `${COLLY_SERVICE_URL}/crawl`,
+          {
+            url: website,
+            maxDepth: 2,
+            maxPages: 20,
+            extractEmails: true,
+            extractPhones: true,
+            extractSocials: true,
+            countryCode: "BR",
+          },
+          { timeout: 30000 }
+        );
+        if (collyRes.data?.success) {
+          const d = collyRes.data.data;
+          emails = d.emails || [];
+          phones = d.phones || [];
+          whatsappLinks = (d.whatsappNums || []).map((n: string) => `https://wa.me/${n}`);
+          socialLinks = d.socialLinks || {};
+          source = "colly";
+        }
+      } catch (e: any) {
+        console.warn("Colly indisponível:", e?.message);
+      }
+    }
+
+    // ── Fallback final: fetch simples + Cheerio ─────────────────
+    if (emails.length === 0 && source === "none") {
+      try {
+        const fetchRes = await fetch(website, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; WootechCRM/1.0)" },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (fetchRes.ok) {
+          const html = await fetchRes.text();
+          const $ = cheerio.load(html);
+          const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+          emails = [...new Set([
+            ...$("a[href^='mailto:']").map((_, el) => $(el).attr("href")?.replace("mailto:", "").split("?")[0] || "").toArray(),
+            ...(html.match(emailRegex) || []),
+          ])].filter(e => !e.endsWith(".png") && e.includes("@")).slice(0, 10);
+
+          $("a[href^='tel:']").each((_, el) => {
+            const phone = $(el).attr("href")?.replace("tel:", "") || "";
+            if (phone) phones.push(phone);
+          });
+
+          $("a").each((_, el) => {
+            const href = $(el).attr("href") || "";
+            if (href.includes("wa.me")) whatsappLinks.push(href);
+            if (href.includes("instagram.com/")) socialLinks.instagram = href;
+            if (href.includes("facebook.com/")) socialLinks.facebook = href;
+            if (href.includes("linkedin.com/")) socialLinks.linkedin = href;
+          });
+
+          source = "cheerio-fetch";
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Validar e formatar telefones com libphonenumber-js
+    const validatedPhones = [...new Set(phones)].map(p => {
+      try {
+        const parsed = parsePhoneNumberFromString(p, "BR");
+        return parsed?.isValid() ? parsed.formatInternational() : p;
+      } catch { return p; }
+    }).slice(0, 10);
+
+    res.json({
+      success: true,
+      source,
+      website,
+      emails: [...new Set(emails)].slice(0, 10),
+      phones: validatedPhones,
+      whatsappLinks: [...new Set(whatsappLinks)].slice(0, 5),
+      socialLinks,
+      techStack,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// AI Comercial Endpoint (Gemini 3.6 Flash)
+// =================================================================
+// FERRAMENTA 12: FIRECRAWL — Crawl completo de site
+// POST /api/enrichment/crawl
+// =================================================================
+app.post("/api/enrichment/crawl", async (req, res) => {
+  try {
+    const { url, maxDepth = 3 } = req.body;
+    if (!url) return res.status(400).json({ success: false, error: "url é obrigatório" });
+
+    const fcRes = await axios.post(
+      `${FIRECRAWL_URL}/v1/crawl`,
+      {
+        url,
+        limit: 50,
+        maxDepth,
+        scrapeOptions: { formats: ["markdown", "html"] },
+      },
+      {
+        headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}`, "Content-Type": "application/json" },
+        timeout: 10000,
+      }
+    );
+
+    res.json({ success: true, jobId: fcRes.data?.jobId || fcRes.data?.id, data: fcRes.data });
+  } catch (err: any) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/enrichment/crawl/:jobId — status do crawl
+app.get("/api/enrichment/crawl/:jobId", async (req, res) => {
+  try {
+    const r = await axios.get(`${FIRECRAWL_URL}/v1/crawl/${req.params.jobId}`, {
+      headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}` },
+      timeout: 8000,
+    });
+    res.json(r.data);
+  } catch (err: any) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// =================================================================
+// FERRAMENTA 11: UNSTRUCTURED — Extração de PDFs, DOCX, XLSX
+// POST /api/enrichment/document
+// =================================================================
+app.post("/api/enrichment/document", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: "Arquivo é obrigatório" });
+
+    const formData = new FormData();
+    const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+    formData.append("files", blob, req.file.originalname);
+    formData.append("strategy", "auto");
+    formData.append("coordinates", "false");
+
+    const response = await fetch(`${UNSTRUCTURED_URL}/general/v0/general`, {
+      method: "POST",
+      headers: { unstructured_api_key: process.env.UNSTRUCTURED_API_KEY || "local" },
+      body: formData,
+      signal: AbortSignal.timeout(60000),
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({ success: false, error: `Unstructured retornou ${response.status}` });
+    }
+
+    const elements: any[] = await response.json();
+
+    // Extrair texto completo + emails + telefones
+    const fullText = elements.map((e: any) => e.text || "").join("\n");
+    const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+    const emails = [...new Set(fullText.match(emailRegex) || [])].slice(0, 20);
+
+    res.json({
+      success: true,
+      filename: req.file.originalname,
+      elements: elements.length,
+      text: fullText.substring(0, 5000),
+      emails,
+      rawElements: elements.slice(0, 50),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =================================================================
+// FERRAMENTA Whatsmeow: Validação de Números WhatsApp
+// POST /api/whatsapp/validate-numbers
+// =================================================================
+app.post("/api/whatsapp/validate-numbers", async (req, res) => {
+  try {
+    const { numbers } = req.body;
+    if (!Array.isArray(numbers) || numbers.length === 0) {
+      return res.status(400).json({ success: false, error: "numbers deve ser um array" });
+    }
+
+    const results = await Promise.all(
+      numbers.map(async (num: string) => {
+        const cleaned = num.replace(/\D/g, "");
+        const withCountry = cleaned.startsWith("55") ? cleaned : `55${cleaned}`;
+
+        // Validar formato com libphonenumber-js
+        let isValid = false;
+        try {
+          const parsed = parsePhoneNumberFromString(`+${withCountry}`, "BR");
+          isValid = parsed?.isValid() || false;
+        } catch { /* ignore */ }
+
+        // Verificar no whatsapp-service (Go/Whatsmeow)
+        let hasWhatsApp = false;
+        let jid = "";
+        let accountType = "unknown";
+
+        try {
+          const waRes = await axios.get(`${WHATSAPP_API_URL}/validate?number=${withCountry}`, { timeout: 10000 });
+          hasWhatsApp = waRes.data?.valid === true;
+          jid = waRes.data?.jid || "";
+          accountType = jid.includes("@g.us") ? "WhatsApp Group" : hasWhatsApp ? "WhatsApp" : "Não registrado";
+        } catch {
+          // WhatsApp service offline — deixar como não verificado
+          accountType = "Não verificado (serviço offline)";
+        }
+
+        return {
+          rawNumber: num,
+          formattedNumber: `+${withCountry}`,
+          isValidFormat: isValid,
+          hasWhatsApp,
+          jid: jid || undefined,
+          accountType,
+          verifiedAt: new Date().toISOString(),
+        };
+      })
+    );
+
+    res.json({ success: true, count: results.length, validated: results });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =================================================================
+// COLLY: Crawl direto via colly-service
+// POST /api/enrichment/colly-crawl
+// =================================================================
+app.post("/api/enrichment/colly-crawl", async (req, res) => {
+  try {
+    const { url, maxDepth = 2, maxPages = 30 } = req.body;
+    if (!url) return res.status(400).json({ success: false, error: "url é obrigatório" });
+
+    const r = await axios.post(
+      `${COLLY_SERVICE_URL}/crawl`,
+      { url, maxDepth, maxPages, extractEmails: true, extractPhones: true, extractSocials: true, countryCode: "BR" },
+      { timeout: 45000 }
+    );
+    res.json(r.data);
+  } catch (err: any) {
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// =================================================================
+// AI — Gemini Comercial
+// POST /api/ai/generate
+// =================================================================
 app.post("/api/ai/generate", async (req, res) => {
   try {
     const { type, companyName, contactRole, niche, dealValue, notes, objectionText } = req.body;
 
-    let systemPrompt = "Você é o assistente executivo de Inteligência Comercial do Wootech CRM. Responda em português do Brasil de forma extremamente persuasiva, objetiva e profissional para vendas B2B.";
+    const systemPrompt = "Você é o assistente executivo de Inteligência Comercial do Wootech CRM. Responda em português do Brasil de forma extremamente persuasiva, objetiva e profissional para vendas B2B.";
     let userPrompt = "";
 
-    if (type === 'script') {
-      userPrompt = `Crie um script de Cold Call telefônica de alta conversão para abordar a empresa "${companyName || 'Empresa B2B'}" (Nicho: ${niche || 'Geral'}). O interlocutor é o ${contactRole || 'Decisor/Diretor'}. Destaque propostas de valor, gancho de abertura e pergunta de qualificação rápida.`;
-    } else if (type === 'email') {
-      userPrompt = `Escreva um e-mail de prospecção fria (Cold Email B2B) curto (máximo 120 palavras) para a empresa "${companyName || 'Empresa'}" no nicho de ${niche || 'B2B'}. Assunto chamativo e Call to Action claro para agendar 15 min.`;
-    } else if (type === 'whatsapp') {
-      userPrompt = `Crie uma mensagem amigável e direta de abordagem pelo WhatsApp para o ${contactRole || 'Decisor'} da empresa "${companyName || 'Empresa'}". Use formatação limpa do WhatsApp (negrito em palavras chave) com pergunta aberta ao final.`;
-    } else if (type === 'objection') {
-      userPrompt = `O cliente disse a seguinte objeção: "${objectionText || 'Está muito caro / Não temos orçamento agora'}". Crie 3 respostas estratégicas e contornadoras de objeção comercial B2B baseadas em ROI e custo de oportunidade.`;
-    } else if (type === 'summary') {
-      userPrompt = `Sintetize em 3 pontos estratégicos as oportunidades de venda para a empresa "${companyName}" (Nicho: ${niche}). Notas adicionais: ${notes || 'Nenhuma nota'}. Apresente o resumo executivo e sugestão de oferta.`;
-    } else if (type === 'score') {
-      userPrompt = `Avalie o potencial comercial B2B para a empresa "${companyName}" com valor de oportunidade R$ ${dealValue || 10000}. Forneça uma pontuação estimada de 0 a 100 e 3 justificativas resumidas.`;
+    if (type === "script") {
+      userPrompt = `Crie um script de Cold Call telefônica de alta conversão para abordar a empresa "${companyName || "Empresa B2B"}" (Nicho: ${niche || "Geral"}). O interlocutor é o ${contactRole || "Decisor/Diretor"}. Destaque propostas de valor, gancho de abertura e pergunta de qualificação rápida.`;
+    } else if (type === "email") {
+      userPrompt = `Escreva um e-mail de prospecção fria (Cold Email B2B) curto (máximo 120 palavras) para a empresa "${companyName || "Empresa"}" no nicho de ${niche || "B2B"}. Assunto chamativo e Call to Action claro para agendar 15 min.`;
+    } else if (type === "whatsapp") {
+      userPrompt = `Crie uma mensagem amigável e direta de abordagem pelo WhatsApp para o ${contactRole || "Decisor"} da empresa "${companyName || "Empresa"}". Use formatação limpa do WhatsApp (negrito em palavras chave) com pergunta aberta ao final.`;
+    } else if (type === "objection") {
+      userPrompt = `O cliente disse: "${objectionText || "Está muito caro"}". Crie 3 respostas estratégicas de contorno de objeção comercial B2B baseadas em ROI e custo de oportunidade.`;
+    } else if (type === "summary") {
+      userPrompt = `Sintetize em 3 pontos estratégicos as oportunidades de venda para "${companyName}" (Nicho: ${niche}). Notas: ${notes || "Nenhuma"}. Apresente resumo executivo e sugestão de oferta.`;
+    } else if (type === "score") {
+      userPrompt = `Avalie o potencial comercial B2B para "${companyName}" com oportunidade de R$ ${dealValue || 10000}. Forneça pontuação de 0 a 100 e 3 justificativas resumidas.`;
     } else {
-      userPrompt = `Forneça sugestões de ações comerciais B2B para a empresa "${companyName}".`;
+      userPrompt = `Forneça sugestões de ações comerciais B2B para "${companyName}".`;
     }
 
     const ai = getAIClient();
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-2.0-flash",
       contents: userPrompt,
-      config: {
-        systemInstruction: systemPrompt,
-        temperature: 0.7,
-      },
+      config: { systemInstruction: systemPrompt, temperature: 0.7 },
     });
 
-    const resultText = response.text || "Conteúdo gerado com sucesso.";
-    res.json({ success: true, result: resultText });
+    res.json({ success: true, result: response.text || "Conteúdo gerado." });
   } catch (err: any) {
-    console.error("Erro na API Gemini:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message || "Falha ao gerar inteligência comercial com Gemini.",
-      fallback: "Não foi possível conectar à IA Gemini no momento. Verifique a chave de API nas configurações."
-    });
+    console.error("Erro Gemini:", err);
+    res.status(500).json({ success: false, error: err.message || "Falha ao gerar conteúdo.", fallback: "Verifique a chave de API Gemini nas configurações." });
   }
 });
 
-// Google Meu Negócio Prospecção B2B API (Live Engine real com OpenStreetMap + Scraper)
-app.post("/api/prospecting/gmb", async (req, res) => {
-  try {
-    const { cidade, estado, categoria, palavraChave } = req.body;
-
-    const searchTerm = `${categoria || ''} ${palavraChave || ''} ${cidade || ''} ${estado || ''}`.trim();
-    console.log(`🔎 Realizando busca B2B real para: "${searchTerm}"`);
-
-    // 1. Tentar buscar da API real do OpenStreetMap Nominatim B2B
-    const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchTerm)}&format=json&addressdetails=1&extratags=1&limit=25`;
-    
-    let osmResults: any[] = [];
-    try {
-      const osmRes = await fetch(osmUrl, {
-        headers: { 'User-Agent': 'WootechCRM/1.0 (contact@wootech.com.br)' }
-      });
-      if (osmRes.ok) {
-        osmResults = await osmRes.json();
-      }
-    } catch (err) {
-      console.warn("Erro ao consultar OpenStreetMap Nominatim:", err);
-    }
-
-    let formattedResults = [];
-
-    if (osmResults && osmResults.length > 0) {
-      formattedResults = osmResults.map((item: any, idx: number) => {
-        const address = item.address || {};
-        const road = address.road || address.pedestrian || address.suburb || 'Rua Principal';
-        const houseNum = address.house_number || `${100 + idx * 15}`;
-        const city = address.city || address.town || address.village || cidade || 'Curitiba';
-        const uf = address.state_code?.toUpperCase() || estado || 'PR';
-        const fullAddress = `${road}, ${houseNum} - ${city}, ${uf}`;
-
-        const name = item.namedetails?.name || item.name || item.display_name.split(',')[0] || `${categoria} ${city}`;
-        const phone = item.extratags?.phone || item.extratags?.['contact:phone'] || `(41) 998${idx}1-2233`;
-        const website = item.extratags?.website || item.extratags?.['contact:website'] || `https://www.${name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com.br`;
-
-        return {
-          googlePlaceId: `osm_${item.place_id}_${idx}`,
-          nomeEmpresa: name.toUpperCase(),
-          categoria: categoria || item.type || 'Empresa B2B',
-          telefone: phone,
-          website: website,
-          endereco: fullAddress,
-          cidade: city,
-          estado: uf,
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon),
-          rating: +(4.3 + (idx * 0.1) % 0.6).toFixed(1),
-          reviewsCount: 30 + idx * 24,
-          photos: [
-            `https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=300`
-          ],
-          horarioFuncionamento: item.extratags?.opening_hours || "Aberto agora: 08:00–18:00",
-          alreadyInCRM: false
-        };
-      });
-    } else {
-      // Fallback inteligente se a busca por geocoding específico não retornar resultados exatos
-      const baseList = [
-        `${categoria || 'Clínica'} Especializada ${cidade || 'Central'}`,
-        `Soluções Corporativas ${cidade || 'Brasil'}`,
-        `${categoria || 'Escritório'} Vanguarda ${estado || 'BR'}`,
-        `Grupo ${palavraChave || 'Comercial'} ${cidade || 'Litoral'}`,
-        `Centro de Excelência ${categoria || 'Serviços'}`
-      ];
-
-      formattedResults = baseList.map((name, i) => {
-        const domain = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-        return {
-          googlePlaceId: `gmb_live_${domain}_${i}`,
-          nomeEmpresa: name.toUpperCase(),
-          categoria: categoria || 'Serviços B2B',
-          telefone: `(${cidade.toLowerCase().includes('rio') ? '21' : '41'}) 99877-${1000 + i * 111}`,
-          website: `https://www.${domain}.com.br`,
-          endereco: `Av. Central, ${200 + i * 35}, Centro, ${cidade || 'Curitiba'} - ${estado || 'PR'}`,
-          cidade: cidade || 'Curitiba',
-          estado: estado || 'PR',
-          lat: -25.4372 + i * 0.005,
-          lng: -49.2700 + i * 0.005,
-          rating: +(4.6 + (i * 0.1) % 0.4).toFixed(1),
-          reviewsCount: 52 + i * 40,
-          photos: [`https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=300`],
-          horarioFuncionamento: "Aberto agora: 08:00–18:00",
-          alreadyInCRM: false
-        };
-      });
-    }
-
-    res.json({
-      success: true,
-      query: { cidade, estado, categoria, palavraChave },
-      totalResults: formattedResults.length,
-      results: formattedResults
-    });
-  } catch (err: any) {
-    console.error("Erro na busca de prospecção real:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-
-// Enriquecimento CNPJ / Receita Federal
-app.post("/api/enrichment/receita", async (req, res) => {
-  try {
-    const { cnpj } = req.body;
-    const cleanCNPJ = cnpj ? cnpj.replace(/\D/g, '') : '';
-
-    if (cleanCNPJ.length === 14) {
-      try {
-        const fetchRes = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCNPJ}`);
-        if (fetchRes.ok) {
-          const brasilApiData = await fetchRes.json();
-          return res.json({
-            success: true,
-            source: 'BrasilAPI',
-            data: {
-              razaoSocial: brasilApiData.razao_social,
-              nomeFantasia: brasilApiData.nome_fantasia || brasilApiData.razao_social,
-              cnpj: cnpj,
-              situacao: brasilApiData.descricao_situacao_cadastral || 'ATIVA',
-              cnaePrincipal: {
-                code: String(brasilApiData.cnae_fiscal || ''),
-                text: brasilApiData.cnae_fiscal_descricao || 'Atividade Comercial'
-              },
-              capitalSocial: brasilApiData.capital_social || 500000,
-              fundacao: brasilApiData.data_inicio_atividade || '2018-05-10',
-              porte: brasilApiData.porte || 'EPP',
-              naturezaJuridica: brasilApiData.natureza_juridica || '206-2 - Sociedade Empresária Limitada',
-              endereco: {
-                logradouro: `${brasilApiData.descricao_tipo_de_logradouro || ''} ${brasilApiData.logradouro || ''}`.trim(),
-                numero: brasilApiData.numero || 'S/N',
-                bairro: brasilApiData.bairro || 'Centro',
-                cidade: brasilApiData.municipio || 'São Paulo',
-                estado: brasilApiData.uf || 'SP',
-                cep: brasilApiData.cep || '01000-000'
-              },
-              telefones: [brasilApiData.ddd_telefone_1 || '(11) 3000-0000'],
-              emails: [brasilApiData.email || 'comercial@empresa.com.br'],
-              qsa: brasilApiData.qsa || []
-            }
-          });
-        }
-      } catch (e) {
-        console.warn("BrasilAPI fallback triggered:", e);
-      }
-    }
-
-    res.status(400).json({ success: false, error: "Invalid CNPJ or API unavailable" });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Web Crawler & Auditoria de Site / Tecnologias Real
-app.post("/api/enrichment/website", async (req, res) => {
-  try {
-    const { website } = req.body;
-    if (!website) {
-      return res.status(400).json({ success: false, error: "Website URL is required" });
-    }
-
-    console.log(`🕷️ Auditando website real: ${website}`);
-    let html = '';
-    try {
-      const response = await fetch(website, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-        signal: AbortSignal.timeout(5000)
-      });
-      if (response.ok) {
-        html = await response.text();
-      }
-    } catch (e) {
-      console.warn("Website fetch warning:", e);
-    }
-
-    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-    const foundEmails = html.match(emailRegex) || [];
-    const uniqueEmails = Array.from(new Set(foundEmails)).filter(e => !e.endsWith('.png') && !e.endsWith('.jpg') && !e.endsWith('.svg'));
-
-    const techStack = [];
-    if (html.includes('gtm.js') || html.includes('googletagmanager')) techStack.push({ name: 'Google Tag Manager', category: 'analytics' });
-    if (html.includes('analytics.js') || html.includes('ga.js') || html.includes('gtag')) techStack.push({ name: 'Google Analytics 4', category: 'analytics' });
-    if (html.includes('fbevents.js') || html.includes('fbq(')) techStack.push({ name: 'Meta Pixel (Facebook)', category: 'advertising' });
-    if (html.includes('wp-content') || html.includes('wordpress')) techStack.push({ name: 'WordPress', category: 'cms' });
-    if (html.includes('Shopify') || html.includes('cdn.shopify.com')) techStack.push({ name: 'Shopify', category: 'ecommerce' });
-    if (html.includes('elementor')) techStack.push({ name: 'Elementor Pro', category: 'cms' });
-    if (html.includes('hotjar')) techStack.push({ name: 'Hotjar UX', category: 'analytics' });
-    if (html.includes('rdstation') || html.includes('rd-js')) techStack.push({ name: 'RD Station Marketing', category: 'crm' });
-
-    if (techStack.length === 0) {
-      techStack.push({ name: 'Google Analytics 4', category: 'analytics' });
-      techStack.push({ name: 'SSL Certificate / HTTPS', category: 'security' });
-    }
-
-    res.json({
-      success: true,
-      website,
-      emails: uniqueEmails.length > 0 ? uniqueEmails : [`contato@${website.replace(/https?:\/\/(www\.)?/, '').split('/')[0]}`],
-      techStack
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Validador de Números WhatsApp
-app.post("/api/whatsapp/validate-numbers", async (req, res) => {
-  try {
-    const { numbers } = req.body; // Array of strings
-
-    const validated = (numbers || []).map((num: string, idx: number) => ({
-      rawNumber: num,
-      formattedNumber: num.startsWith('+') ? num : `+55 ${num}`,
-      hasWhatsApp: true, // Always return active verification status
-      verifiedAt: new Date().toISOString(),
-      accountType: idx % 2 === 0 ? 'WhatsApp Business' : 'WhatsApp Personal'
-    }));
-
-    res.json({ success: true, count: validated.length, validated });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ==========================================
-// VITE MIDDLEWARE / PRODUCTION STATIC SERVING
-// ==========================================
+// =================================================================
+// VITE MIDDLEWARE / PRODUCTION STATIC
+// =================================================================
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
 
-  // Atenção: agora rodamos 'server.listen' em vez de 'app.listen' por causa do Socket.io
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Wootech CRM Server (com WebSocket) rodando em http://0.0.0.0:${PORT}`);
+    console.log(`🚀 Wootech CRM (WebSocket + Lead Stack) em http://0.0.0.0:${PORT}`);
+    console.log(`   gosom:        ${SCRAPER_API_URL}`);
+    console.log(`   browserless:  ${BROWSERLESS_URL}`);
+    console.log(`   firecrawl:    ${FIRECRAWL_URL}`);
+    console.log(`   unstructured: ${UNSTRUCTURED_URL}`);
+    console.log(`   cnpj-service: ${CNPJ_SERVICE_URL}`);
+    console.log(`   colly:        ${COLLY_SERVICE_URL}`);
+    console.log(`   whatsapp:     ${WHATSAPP_API_URL}`);
   });
 }
 
