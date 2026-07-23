@@ -2,61 +2,19 @@ version: "3.8"
 
 services:
   # =========================================================================
-  # NÚCLEO CRM
+  # NÚCLEO CRM — app monolito (frontend + API na mesma imagem, porta 3000)
   # =========================================================================
-  frontend:
-    image: ghcr.io/fluowai/wootech-crm-frontend:latest
-    environment:
-      VITE_API_URL: "same-origin"
-      VITE_LIVEKIT_URL: ""
-      VITE_PANEL_URL: "https://crm.wootech.com.br"
-      VITE_SUPABASE_URL: "https://ywvhfgvlnbigfmerilcq.supabase.co"
-      VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3dmhmZ3ZsbmJpZ2ZtZXJpbGNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDYyOTEsImV4cCI6MjA5MzA4MjI5MX0.2FezfFHWhx7aXYKCTORnvDXeEDfshzHvzyiA9DMP5vs"
-    networks:
-      - wootech1
-      - wootechcrm6_internal
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=wootech1"
-      - "traefik.http.routers.wootechcrm6_frontend.rule=Host(`crm.wootech.com.br`)"
-      - "traefik.http.routers.wootechcrm6_frontend.entrypoints=websecure"
-      - "traefik.http.routers.wootechcrm6_frontend.tls.certresolver=letsencryptresolver"
-      - "traefik.http.routers.wootechcrm6_frontend.priority=10"
-      - "traefik.http.routers.wootechcrm6_frontend.service=wootechcrm6_frontend"
-      - "traefik.http.services.wootechcrm6_frontend.loadbalancer.server.port=80"
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-      labels:
-        - "traefik.enable=true"
-        - "traefik.docker.network=wootech1"
-        - "traefik.http.routers.wootechcrm6_frontend.rule=Host(`crm.wootech.com.br`)"
-        - "traefik.http.routers.wootechcrm6_frontend.entrypoints=websecure"
-        - "traefik.http.routers.wootechcrm6_frontend.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.wootechcrm6_frontend.priority=10"
-        - "traefik.http.routers.wootechcrm6_frontend.service=wootechcrm6_frontend"
-        - "traefik.http.services.wootechcrm6_frontend.loadbalancer.server.port=80"
-
-  api:
-    image: ghcr.io/fluowai/wootech-crm-api:latest
+  app:
+    image: ghcr.io/fluowai/wootechcrm6:latest
     environment:
       NODE_ENV: "production"
-      PORT: "10000"
+      PORT: "3000"
       FRONTEND_URL: "https://crm.wootech.com.br"
       CORS_ORIGINS: "https://crm.wootech.com.br,https://www.crm.wootech.com.br"
       WHITELABEL_DOCKER_IP: "207.58.153.219"
       WHITELABEL_CNAME_TARGET: "crm.wootech.com.br"
       TRAEFIK_SYNC_MODE: "docker-service"
-      TRAEFIK_FRONTEND_URL: "http://wootechcrm6_frontend:80"
-      TRAEFIK_API_URL: "http://wootechcrm6_api:10000"
       TRAEFIK_CERT_RESOLVER: "letsencryptresolver"
-      TRAEFIK_ROUTER_SERVICE: "wootechcrm6_frontend"
-      TRAEFIK_ROUTER_LABEL_PREFIX: "wootechcrm6_custom"
       TRAEFIK_DOCKER_NETWORK: "wootech1"
       DOCKER_SOCKET_PATH: "/var/run/docker.sock"
       DATABASE_URL: "postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0"
@@ -67,13 +25,16 @@ services:
       SUPABASE_URL: "https://ywvhfgvlnbigfmerilcq.supabase.co"
       SUPABASE_REST_URL: "https://ywvhfgvlnbigfmerilcq.supabase.co/rest/v1"
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3dmhmZ3ZsbmJpZ2ZtZXJpbGNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDYyOTEsImV4cCI6MjA5MzA4MjI5MX0.2FezfFHWhx7aXYKCTORnvDXeEDfshzHvzyiA9DMP5vs"
+      # ← Obrigatório: o supabase.ts usa VITE_SUPABASE_URL (não SUPABASE_URL)
+      VITE_SUPABASE_URL: "https://ywvhfgvlnbigfmerilcq.supabase.co"
+      VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3dmhmZ3ZsbmJpZ2ZtZXJpbGNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDYyOTEsImV4cCI6MjA5MzA4MjI5MX0.2FezfFHWhx7aXYKCTORnvDXeEDfshzHvzyiA9DMP5vs"
       SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3dmhmZ3ZsbmJpZ2ZtZXJpbGNxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzUwNjI5MSwiZXhwIjoyMDkzMDgyMjkxfQ.wIihcD0zm4rqQwvur7Smzy3-5sc0YJgTWwSQR5u47AE"
       SUPABASE_JWT_SECRET: "MTluDh9gIwUTonk9op8kRc3B/cYihNKj2RYPL8+0D1F6iCykx2shnfvPJLmJsJ/cn0z81JFY52G5os0hFjokuQ=="
-      
+
       # ── Integração Inteligência Comercial ────────────────────────
       REDIS_URL: "redis://cache-redis:6379"
-      SCRAPER_API_URL: "http://google-maps-scraper:8080"
-      GOOGLE_MAPS_SCRAPER_URL: "http://google-maps-scraper:8080"
+      SCRAPER_API_URL: "${SCRAPER_API_URL:-http://google-maps-scraper:8080}"
+      GOOGLE_MAPS_SCRAPER_URL: "${SCRAPER_API_URL:-http://google-maps-scraper:8080}"
       GOOGLE_MAPS_SCRAPER_CONCURRENCY: "2"
       GOOGLE_MAPS_SCRAPER_JOB_TIMEOUT_MS: "240000"
       WHATSAPP_BRIDGE_URL: "http://whatsapp-bridge:8091"
@@ -81,12 +42,12 @@ services:
       WHATSAPP_BRIDGE_SECRET: "${WHATSAPP_BRIDGE_SECRET:-dev-whatsapp-bridge-secret}"
       BROWSERLESS_URL: "ws://browserless:3000"
       BROWSERLESS_TOKEN: "wootech-prod-token"
-      
+
       # ROTAÇÃO DE CHAVES DO FIRECRAWL EM NUVEM
       # Para adicionar mais chaves depois, basta separar por vírgula. Ex: "chave1,chave2,chave3"
       FIRECRAWL_URL: "https://api.firecrawl.dev"
       FIRECRAWL_API_KEY: "fc-519978c366ad4871a49f507328c9dce5"
-      
+
       UNSTRUCTURED_URL: "http://unstructured:8000"
       CNPJ_SERVICE_URL: "http://cnpj-service:4000"
       COLLY_SERVICE_URL: "http://colly-service:5000"
@@ -97,29 +58,7 @@ services:
       wootechcrm6_internal:
         aliases:
           - backend
-          - wootechcrm6_api
-          - nexus360_api
-    deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
-      restart_policy:
-        condition: any
-      update_config:
-        order: stop-first
-        failure_action: rollback
-      rollback_config:
-        order: stop-first
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=wootech1"
-      - "traefik.http.routers.wootechcrm6_api.rule=Host(`crm.wootech.com.br`) && (PathPrefix(`/api`) || PathPrefix(`/lp`))"
-      - "traefik.http.routers.wootechcrm6_api.entrypoints=websecure"
-      - "traefik.http.routers.wootechcrm6_api.tls.certresolver=letsencryptresolver"
-      - "traefik.http.routers.wootechcrm6_api.priority=20"
-      - "traefik.http.routers.wootechcrm6_api.service=wootechcrm6_api"
-      - "traefik.http.services.wootechcrm6_api.loadbalancer.server.port=10000"
+          - app
     deploy:
       replicas: 1
       placement:
@@ -135,15 +74,15 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=wootech1"
-        - "traefik.http.routers.wootechcrm6_api.rule=Host(`crm.wootech.com.br`) && (PathPrefix(`/api`) || PathPrefix(`/lp`))"
-        - "traefik.http.routers.wootechcrm6_api.entrypoints=websecure"
-        - "traefik.http.routers.wootechcrm6_api.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.wootechcrm6_api.priority=20"
-        - "traefik.http.routers.wootechcrm6_api.service=wootechcrm6_api"
-        - "traefik.http.services.wootechcrm6_api.loadbalancer.server.port=10000"
+        - "traefik.http.routers.wootechcrm6.rule=Host(`crm.wootech.com.br`)"
+        - "traefik.http.routers.wootechcrm6.entrypoints=websecure"
+        - "traefik.http.routers.wootechcrm6.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.wootechcrm6.priority=10"
+        - "traefik.http.routers.wootechcrm6.service=wootechcrm6"
+        - "traefik.http.services.wootechcrm6.loadbalancer.server.port=3000"
 
   # =========================================================================
-  # SERVIÇOS AUXILIARES DE ESTADO (REDIS / POSTGRES LOCAL)
+  # SERVIÇOS AUXILIARES DE ESTADO (REDIS)
   # =========================================================================
   cache-redis:
     image: redis:7-alpine
@@ -160,36 +99,8 @@ services:
         limits:
           memory: 1.5G
 
-  # =========================================================================
-  # MICROSSERVIÇOS DE LEAD INTELLIGENCE (Rede Interna Oculta)
-  # =========================================================================
-  google-maps-scraper:
-    image: ghcr.io/fluowai/wootech-crm-google-maps-scraper:latest
-    command:
-      - "-web"
-      - "-addr"
-      - ":8080"
-      - "-data-folder"
-      - "/gmapsdata"
-      - "-c"
-      - "2"
-      - "-browser-pool-size"
-      - "1"
-    volumes:
-      - google_maps_scraper_data:/gmapsdata
-    networks:
-      - wootechcrm6_internal
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-      resources:
-        limits:
-          memory: 2G
-    stop_grace_period: 30s
-
   whatsapp-bridge:
-    image: ghcr.io/fluowai/wootech-crm-whatsapp-bridge:latest
+    image: ghcr.io/fluowai/wootechcrm6-whatsapp:latest
     environment:
       WHATSAPP_BRIDGE_ADDR: ":8091"
       WHATSAPP_BRIDGE_SECRET: "${WHATSAPP_BRIDGE_SECRET:-dev-whatsapp-bridge-secret}"
@@ -269,8 +180,6 @@ services:
 # VOLUMES & REDES
 # =========================================================================
 volumes:
-  google_maps_scraper_data:
-    name: wootechcrm6_google_maps_scraper_data
   whatsapp_bridge_data:
     name: wootechcrm6_whatsapp_bridge_data
   wootechcrm6_redis_data:
