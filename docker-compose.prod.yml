@@ -200,6 +200,8 @@ services:
       - FIRECRAWL_API_KEY=local
       - NUM_WORKERS_PER_QUEUE=4
       - BULL_AUTH_KEY=wootech-firecrawl
+      - DATABASE_URL=postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0
+      - NUQ_DATABASE_URL=postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0
     networks:
       - nexus360_internal
     deploy:
