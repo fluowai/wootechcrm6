@@ -22,12 +22,12 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=wootech1"
-        - "traefik.http.routers.nexus360_frontend.rule=Host(`woo.wootech.com.br`)"
-        - "traefik.http.routers.nexus360_frontend.entrypoints=websecure"
-        - "traefik.http.routers.nexus360_frontend.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.nexus360_frontend.priority=10"
-        - "traefik.http.routers.nexus360_frontend.service=nexus360_frontend"
-        - "traefik.http.services.nexus360_frontend.loadbalancer.server.port=80"
+        - "traefik.http.routers.wootech_crm6_frontend.rule=Host(`woo.wootech.com.br`)"
+        - "traefik.http.routers.wootech_crm6_frontend.entrypoints=websecure"
+        - "traefik.http.routers.wootech_crm6_frontend.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.wootech_crm6_frontend.priority=10"
+        - "traefik.http.routers.wootech_crm6_frontend.service=wootech_crm6_frontend"
+        - "traefik.http.services.wootech_crm6_frontend.loadbalancer.server.port=80"
 
   api:
     image: ghcr.io/fluowai/wootech-crm-api:latest
@@ -96,12 +96,12 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=wootech1"
-        - "traefik.http.routers.nexus360_api.rule=Host(`woo.wootech.com.br`) && (PathPrefix(`/api`) || PathPrefix(`/lp`))"
-        - "traefik.http.routers.nexus360_api.entrypoints=websecure"
-        - "traefik.http.routers.nexus360_api.tls.certresolver=letsencryptresolver"
-        - "traefik.http.routers.nexus360_api.priority=20"
-        - "traefik.http.routers.nexus360_api.service=nexus360_api"
-        - "traefik.http.services.nexus360_api.loadbalancer.server.port=10000"
+        - "traefik.http.routers.wootech_crm6_api.rule=Host(`woo.wootech.com.br`) && (PathPrefix(`/api`) || PathPrefix(`/lp`))"
+        - "traefik.http.routers.wootech_crm6_api.entrypoints=websecure"
+        - "traefik.http.routers.wootech_crm6_api.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.wootech_crm6_api.priority=20"
+        - "traefik.http.routers.wootech_crm6_api.service=wootech_crm6_api"
+        - "traefik.http.services.wootech_crm6_api.loadbalancer.server.port=10000"
 
 
   # =========================================================================
