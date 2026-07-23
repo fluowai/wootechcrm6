@@ -1,0 +1,393 @@
+# ==============================================================
+# WOOTECH CRM — STACK PORTAINER (VPS)
+# Copie e cole direto no Portainer > Stacks > Add Stack
+# ==============================================================
+
+networks:
+  wootech1:
+    external: true
+  wootechcrm6_internal:
+    driver: overlay
+
+services:
+
+  # ── App Principal ───────────────────────────────────────────
+  app:
+    image: ghcr.io/fluowai/wootechcrm6:latest
+    container_name: app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Supabase
+      - SUPABASE_URL=https://omxbbhxrwftcklmsaasa.supabase.co
+      - VITE_SUPABASE_URL=https://omxbbhxrwftcklmsaasa.supabase.co
+      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGJiaHhyd2Z0Y2tsbXNhYXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDk2MzQsImV4cCI6MjEwMDMyNTYzNH0.NlZwUOf7OXkrNPxbwlhFr-Zo7cEw9nrnQoaBBjXAdHM
+      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGJiaHhyd2Z0Y2tsbXNhYXNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDc0OTYzNCwiZXhwIjoyMTAwMzI1NjM0fQ.V07J9q1nn0ezuWLgvm0GcBvQ_zHsOuFv6CsEWu949b0
+      - SUPABASE_DB_URL=postgresql://postgres.omxbbhxrwftcklmsaasa:7DUhocw8oIqOkhVe@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
+      # Redis
+      - REDIS_URL=redis://cache-redis:6379
+      # Serviços internos
+      - BROWSERLESS_URL=ws://browserless:3000
+      - BROWSERLESS_TOKEN=wootech-token
+      - FIRECRAWL_URL=https://api.firecrawl.dev
+      - FIRECRAWL_API_KEY=YOUR_FIRECRAWL_API_KEY
+      - UNSTRUCTURED_URL=http://unstructured:8000
+      - CNPJ_SERVICE_URL=http://cnpj-service:4000
+      - COLLY_SERVICE_URL=http://colly-service:5000
+      # WhatsApp Bridge
+      - WHATSAPP_BRIDGE_URL=http://whatsapp-bridge:8091
+      - WHATSAPP_BRIDGE_SECRET=wootech-wa-secret-change-in-prod
+      # AI-BOS Services
+      - PAPERCLIP_URL=http://paperclip:4100
+      - PAPERCLIP_SECRET_KEY=wootech-paperclip-secret-change-in-prod
+      - HERMES_URL=http://hermes:8642
+      - JARVIS_URL=http://jarvis:8443
+      - HERMES_DASHBOARD_PASS=admin
+      - JARVIS_USERNAME=admin
+      - JARVIS_PASSWORD=admin
+      - JARVIS_SECRET=wootech-jarvis-secret-change-in-prod
+      # LLM Provider API Keys
+      - GEMINI_API_KEY=
+      - GROQ_API_KEY=
+      - OPENROUTER_API_KEY=
+      - CEREBRAS_API_KEY=
+      - NVIDIA_NIM_API_KEY=
+      - MISTRAL_API_KEY=
+      - DEEPSEEK_API_KEY=
+      - HUGGINGFACE_API_KEY=
+      - COHERE_API_KEY=
+      - CLOUDFLARE_API_KEY=
+      - PUTER_API_KEY=
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wootechcrm.rule=Host(`crm.wootech.com.br`)"
+      - "traefik.http.routers.wootechcrm.entrypoints=websecure"
+      - "traefik.http.routers.wootechcrm.tls.certresolver=letsencrypt"
+      - "traefik.http.services.wootechcrm.loadbalancer.server.port=3000"
+    depends_on:
+      - cache-redis
+      - whatsapp-bridge
+      - browserless
+      - unstructured
+      - cnpj-service
+      - colly-service
+      - paperclip
+      - hermes
+      - jarvis
+    networks:
+      - wootech1
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── Redis ───────────────────────────────────────────────────
+  cache-redis:
+    image: redis:7-alpine
+    container_name: cache-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── WhatsApp Bridge (Whatsmeow) ────────────────────────────
+  whatsapp-bridge:
+    image: ghcr.io/fluowai/wootechcrm6-whatsapp:latest
+    container_name: whatsapp-bridge
+    restart: always
+    ports:
+      - "8091:8091"
+    environment:
+      - PORT=8091
+      - REDIS_URL=redis://cache-redis:6379
+      - WEBHOOK_URL=http://app:3000/api/whatsapp/instances/webhook
+      - DATA_DIR=/app/instances
+      - BRIDGE_SECRET=wootech-wa-secret-change-in-prod
+    volumes:
+      - whatsapp_data:/app/instances
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── Browserless Chrome ──────────────────────────────────────
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: browserless
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - CONCURRENT=10
+      - TIMEOUT=60000
+      - TOKEN=wootech-token
+      - QUEUE_LENGTH=20
+      - DEMO_MODE=false
+      - PREBOOT_CHROME=true
+      - KEEP_ALIVE=true
+    shm_size: '2gb'
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── Unstructured (PDFs, DOCX) ──────────────────────────────
+  unstructured:
+    image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
+    container_name: unstructured
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - UNSTRUCTURED_API_KEY=local
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── CNPJ Service ────────────────────────────────────────────
+  cnpj-service:
+    image: ghcr.io/fluowai/wootechcrm6:latest
+    container_name: cnpj-service
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - REDIS_URL=redis://cache-redis:6379
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── Colly Crawler (Go) ─────────────────────────────────────
+  colly-service:
+    image: ghcr.io/fluowai/wootechcrm6:latest
+    container_name: colly-service
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── Paperclip Agent Runtime ─────────────────────────────────
+  paperclip:
+    image: ghcr.io/paperclipai/paperclip:latest
+    container_name: paperclip
+    restart: always
+    ports:
+      - "127.0.0.1:4100:4100"
+    environment:
+      - PORT=4100
+      - REDIS_URL=redis://cache-redis:6379
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - SECRET_KEY=wootech-paperclip-secret-change-in-prod
+    depends_on:
+      - cache-redis
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── Hermes Agent (LLM Gateway) ─────────────────────────────
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes-agent
+    restart: always
+    ports:
+      - "127.0.0.1:8642:8642"
+      - "127.0.0.1:9119:9119"
+    environment:
+      - HERMES_MODE=gateway
+      - HERMES_API_PORT=8642
+      - HERMES_DASHBOARD_PORT=9119
+      - HERMES_DASHBOARD_PASS=admin
+      - OPENROUTER_API_KEY=
+      - HERMES_LOG_LEVEL=info
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+  # ── Jarvis (AI Assistant) ──────────────────────────────────
+  jarvis:
+    image: dev-core-busy/jarvis:latest
+    container_name: jarvis
+    restart: always
+    ports:
+      - "127.0.0.1:8443:8443"
+    environment:
+      - JARVIS_PORT=8443
+      - JARVIS_USERNAME=admin
+      - JARVIS_PASSWORD=admin
+      - JARVIS_SECRET=wootech-jarvis-secret-change-in-prod
+      - OPENROUTER_API_KEY=
+      - REDIS_URL=redis://cache-redis:6379
+    depends_on:
+      - cache-redis
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
+
+volumes:
+  redis_data:
+  whatsapp_data:
