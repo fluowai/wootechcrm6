@@ -745,14 +745,38 @@ app.post("/api/ai/generate", async (req, res) => {
 // =================================================================
 // VITE MIDDLEWARE / PRODUCTION STATIC
 // =================================================================
+
+// Runtime config: env vars injetadas no HTML via window.__ENV__
+function getRuntimeConfig(): string {
+  const vars: Record<string, string> = {};
+  const keys = [
+    'VITE_SUPABASE_URL',
+    'VITE_SUPABASE_ANON_KEY',
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPABASE_REST_URL',
+    'SUPABASE_JWT_SECRET',
+  ];
+  for (const key of keys) {
+    const val = process.env[key];
+    if (val) vars[key] = val;
+  }
+  return `<script>window.__ENV__=${JSON.stringify(vars)}</script>`;
+}
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    const indexPath = path.join(distPath, "index.html");
+    const indexHtml = require('fs').readFileSync(indexPath, 'utf-8');
+    const injectedHtml = indexHtml.replace('</head>', `${getRuntimeConfig()}\n</head>`);
+
     app.use(express.static(distPath));
-    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+    app.get("*", (_req, res) => res.type('html').send(injectedHtml));
   }
 
   server.listen(PORT, "0.0.0.0", () => {

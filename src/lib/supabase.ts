@@ -1,13 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Função segura para buscar variáveis de ambiente tanto no Node (backend) quanto no Vite (frontend)
+// Função segura: window.__ENV__ (runtime config) > import.meta.env (Vite build) > process.env (Node)
 const getEnvVar = (key: string) => {
+  // 1. Runtime config injetada pelo server no HTML
+  if (typeof window !== 'undefined' && (window as any).__ENV__ && (window as any).__ENV__[key]) {
+    return (window as any).__ENV__[key];
+  }
+  // 2. Vite build-time vars
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    const val = (import.meta as any).env[key];
+    if (val) return val;
+  }
+  // 3. Node process.env (backend / SSR)
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
     return process.env[key];
-  }
-  // Optional chaining evita o crash se import.meta.env for undefined no Node
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-    return (import.meta as any).env[key];
   }
   return '';
 };
