@@ -207,7 +207,7 @@ services:
           memory: 3G
 
   firecrawl:
-    image: ghcr.io/mendableai/firecrawl:latest
+    image: mendableai/firecrawl:latest
     environment:
       - REDIS_URL=redis://cache-redis:6379
       - PLAYWRIGHT_MICROSERVICE_URL=http://browserless:3000
