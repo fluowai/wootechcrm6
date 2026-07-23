@@ -483,24 +483,35 @@ CREATE INDEX IF NOT EXISTS idx_cnpj_cache_razao_social ON public.cnpj_cache((dat
 -- ==============================================================================
 -- 10. TRIGGERS — CRM
 -- ==============================================================================
+DROP TRIGGER IF EXISTS update_companies_updated_at ON public.companies;
 CREATE TRIGGER update_companies_updated_at BEFORE UPDATE ON public.companies FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_contacts_updated_at ON public.contacts;
 CREATE TRIGGER update_contacts_updated_at BEFORE UPDATE ON public.contacts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_deals_updated_at ON public.deals;
 CREATE TRIGGER update_deals_updated_at BEFORE UPDATE ON public.deals FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_tasks_updated_at ON public.tasks;
 CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_whatsapp_chats_updated_at ON public.whatsapp_chats;
 CREATE TRIGGER update_whatsapp_chats_updated_at BEFORE UPDATE ON public.whatsapp_chats FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_automations_updated_at ON public.automations;
 CREATE TRIGGER update_automations_updated_at BEFORE UPDATE ON public.automations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ==============================================================================
 -- 11. TRIGGERS — AI-BOS
 -- ==============================================================================
+DROP TRIGGER IF EXISTS update_ai_company_profile_updated_at ON public.ai_company_profile;
 CREATE TRIGGER update_ai_company_profile_updated_at BEFORE UPDATE ON public.ai_company_profile FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_ai_agents_updated_at ON public.ai_agents;
 CREATE TRIGGER update_ai_agents_updated_at BEFORE UPDATE ON public.ai_agents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_ai_goals_updated_at ON public.ai_goals;
 CREATE TRIGGER update_ai_goals_updated_at BEFORE UPDATE ON public.ai_goals FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_ai_conversations_updated_at ON public.ai_conversations;
 CREATE TRIGGER update_ai_conversations_updated_at BEFORE UPDATE ON public.ai_conversations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ==============================================================================
 -- 12. TRIGGERS — WhatsApp Multi-Instance
 -- ==============================================================================
+DROP TRIGGER IF EXISTS update_whatsapp_instances_updated_at ON public.whatsapp_instances;
 CREATE TRIGGER update_whatsapp_instances_updated_at BEFORE UPDATE ON public.whatsapp_instances FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ==============================================================================
@@ -533,43 +544,69 @@ ALTER TABLE public.whatsapp_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.automations ENABLE ROW LEVEL SECURITY;
 
 -- Companies
+DROP POLICY IF EXISTS "Users can view own companies" ON public.companies;
 CREATE POLICY "Users can view own companies" ON public.companies FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own companies" ON public.companies;
 CREATE POLICY "Users can insert own companies" ON public.companies FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own companies" ON public.companies;
 CREATE POLICY "Users can update own companies" ON public.companies FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own companies" ON public.companies;
 CREATE POLICY "Users can delete own companies" ON public.companies FOR DELETE USING (auth.uid() = user_id);
 
 -- Contacts
+DROP POLICY IF EXISTS "Users can view own contacts" ON public.contacts;
 CREATE POLICY "Users can view own contacts" ON public.contacts FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own contacts" ON public.contacts;
 CREATE POLICY "Users can insert own contacts" ON public.contacts FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own contacts" ON public.contacts;
 CREATE POLICY "Users can update own contacts" ON public.contacts FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own contacts" ON public.contacts;
 CREATE POLICY "Users can delete own contacts" ON public.contacts FOR DELETE USING (auth.uid() = user_id);
 
 -- Deals
+DROP POLICY IF EXISTS "Users can view own deals" ON public.deals;
 CREATE POLICY "Users can view own deals" ON public.deals FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own deals" ON public.deals;
 CREATE POLICY "Users can insert own deals" ON public.deals FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own deals" ON public.deals;
 CREATE POLICY "Users can update own deals" ON public.deals FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own deals" ON public.deals;
 CREATE POLICY "Users can delete own deals" ON public.deals FOR DELETE USING (auth.uid() = user_id);
 
 -- Tasks
+DROP POLICY IF EXISTS "Users can view own tasks" ON public.tasks;
 CREATE POLICY "Users can view own tasks" ON public.tasks FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own tasks" ON public.tasks;
 CREATE POLICY "Users can insert own tasks" ON public.tasks FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own tasks" ON public.tasks;
 CREATE POLICY "Users can update own tasks" ON public.tasks FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own tasks" ON public.tasks;
 CREATE POLICY "Users can delete own tasks" ON public.tasks FOR DELETE USING (auth.uid() = user_id);
 
 -- WhatsApp Chats
+DROP POLICY IF EXISTS "Users can view own whatsapp_chats" ON public.whatsapp_chats;
 CREATE POLICY "Users can view own whatsapp_chats" ON public.whatsapp_chats FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own whatsapp_chats" ON public.whatsapp_chats;
 CREATE POLICY "Users can insert own whatsapp_chats" ON public.whatsapp_chats FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own whatsapp_chats" ON public.whatsapp_chats;
 CREATE POLICY "Users can update own whatsapp_chats" ON public.whatsapp_chats FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own whatsapp_chats" ON public.whatsapp_chats;
 CREATE POLICY "Users can delete own whatsapp_chats" ON public.whatsapp_chats FOR DELETE USING (auth.uid() = user_id);
 
 -- WhatsApp Messages
+DROP POLICY IF EXISTS "Users can view own whatsapp_messages" ON public.whatsapp_messages;
 CREATE POLICY "Users can view own whatsapp_messages" ON public.whatsapp_messages FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own whatsapp_messages" ON public.whatsapp_messages;
 CREATE POLICY "Users can insert own whatsapp_messages" ON public.whatsapp_messages FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Automations
+DROP POLICY IF EXISTS "Users can view own automations" ON public.automations;
 CREATE POLICY "Users can view own automations" ON public.automations FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own automations" ON public.automations;
 CREATE POLICY "Users can insert own automations" ON public.automations FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own automations" ON public.automations;
 CREATE POLICY "Users can update own automations" ON public.automations FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own automations" ON public.automations;
 CREATE POLICY "Users can delete own automations" ON public.automations FOR DELETE USING (auth.uid() = user_id);
 
 -- ==============================================================================
@@ -585,37 +622,57 @@ ALTER TABLE public.ai_conversation_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_llm_usage ENABLE ROW LEVEL SECURITY;
 
 -- ai_company_profile
+DROP POLICY IF EXISTS "Users can view their own company profile" ON public.ai_company_profile;
 CREATE POLICY "Users can view their own company profile" ON public.ai_company_profile FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own company profile" ON public.ai_company_profile;
 CREATE POLICY "Users can insert their own company profile" ON public.ai_company_profile FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own company profile" ON public.ai_company_profile;
 CREATE POLICY "Users can update their own company profile" ON public.ai_company_profile FOR UPDATE USING (auth.uid() = user_id);
 
 -- ai_agents
+DROP POLICY IF EXISTS "Users can view their own agents" ON public.ai_agents;
 CREATE POLICY "Users can view their own agents" ON public.ai_agents FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own agents" ON public.ai_agents;
 CREATE POLICY "Users can insert their own agents" ON public.ai_agents FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own agents" ON public.ai_agents;
 CREATE POLICY "Users can update their own agents" ON public.ai_agents FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own agents" ON public.ai_agents;
 CREATE POLICY "Users can delete their own agents" ON public.ai_agents FOR DELETE USING (auth.uid() = user_id);
 
 -- ai_goals
+DROP POLICY IF EXISTS "Users can view their own goals" ON public.ai_goals;
 CREATE POLICY "Users can view their own goals" ON public.ai_goals FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own goals" ON public.ai_goals;
 CREATE POLICY "Users can insert their own goals" ON public.ai_goals FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own goals" ON public.ai_goals;
 CREATE POLICY "Users can update their own goals" ON public.ai_goals FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own goals" ON public.ai_goals;
 CREATE POLICY "Users can delete their own goals" ON public.ai_goals FOR DELETE USING (auth.uid() = user_id);
 
 -- ai_activities
+DROP POLICY IF EXISTS "Users can view their own activities" ON public.ai_activities;
 CREATE POLICY "Users can view their own activities" ON public.ai_activities FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own activities" ON public.ai_activities;
 CREATE POLICY "Users can insert their own activities" ON public.ai_activities FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- ai_suggestions
+DROP POLICY IF EXISTS "Users can view their own suggestions" ON public.ai_suggestions;
 CREATE POLICY "Users can view their own suggestions" ON public.ai_suggestions FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own suggestions" ON public.ai_suggestions;
 CREATE POLICY "Users can insert their own suggestions" ON public.ai_suggestions FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own suggestions" ON public.ai_suggestions;
 CREATE POLICY "Users can update their own suggestions" ON public.ai_suggestions FOR UPDATE USING (auth.uid() = user_id);
 
 -- ai_conversations
+DROP POLICY IF EXISTS "Users can view their own conversations" ON public.ai_conversations;
 CREATE POLICY "Users can view their own conversations" ON public.ai_conversations FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own conversations" ON public.ai_conversations;
 CREATE POLICY "Users can insert their own conversations" ON public.ai_conversations FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own conversations" ON public.ai_conversations;
 CREATE POLICY "Users can update their own conversations" ON public.ai_conversations FOR UPDATE USING (auth.uid() = user_id);
 
 -- ai_conversation_messages
+DROP POLICY IF EXISTS "Users can view messages in their conversations" ON public.ai_conversation_messages;
 CREATE POLICY "Users can view messages in their conversations" ON public.ai_conversation_messages
     FOR SELECT USING (
         EXISTS (
@@ -624,6 +681,7 @@ CREATE POLICY "Users can view messages in their conversations" ON public.ai_conv
             AND ai_conversations.user_id = auth.uid()
         )
     );
+DROP POLICY IF EXISTS "Users can insert messages in their conversations" ON public.ai_conversation_messages;
 CREATE POLICY "Users can insert messages in their conversations" ON public.ai_conversation_messages
     FOR INSERT WITH CHECK (
         EXISTS (
@@ -634,7 +692,9 @@ CREATE POLICY "Users can insert messages in their conversations" ON public.ai_co
     );
 
 -- ai_llm_usage
+DROP POLICY IF EXISTS "Users can view their own LLM usage" ON public.ai_llm_usage;
 CREATE POLICY "Users can view their own LLM usage" ON public.ai_llm_usage FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own LLM usage" ON public.ai_llm_usage;
 CREATE POLICY "Users can insert their own LLM usage" ON public.ai_llm_usage FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- ==============================================================================
@@ -645,12 +705,17 @@ ALTER TABLE public.wa_instance_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wa_messages ENABLE ROW LEVEL SECURITY;
 
 -- whatsapp_instances
+DROP POLICY IF EXISTS "Users can view their own WA instances" ON public.whatsapp_instances;
 CREATE POLICY "Users can view their own WA instances" ON public.whatsapp_instances FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own WA instances" ON public.whatsapp_instances;
 CREATE POLICY "Users can insert their own WA instances" ON public.whatsapp_instances FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own WA instances" ON public.whatsapp_instances;
 CREATE POLICY "Users can update their own WA instances" ON public.whatsapp_instances FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own WA instances" ON public.whatsapp_instances;
 CREATE POLICY "Users can delete their own WA instances" ON public.whatsapp_instances FOR DELETE USING (auth.uid() = user_id);
 
 -- wa_instance_links
+DROP POLICY IF EXISTS "Users can view links of their WA instances" ON public.wa_instance_links;
 CREATE POLICY "Users can view links of their WA instances" ON public.wa_instance_links
     FOR SELECT USING (
         EXISTS (
@@ -659,6 +724,7 @@ CREATE POLICY "Users can view links of their WA instances" ON public.wa_instance
             AND whatsapp_instances.user_id = auth.uid()
         )
     );
+DROP POLICY IF EXISTS "Users can insert links to their WA instances" ON public.wa_instance_links;
 CREATE POLICY "Users can insert links to their WA instances" ON public.wa_instance_links
     FOR INSERT WITH CHECK (
         EXISTS (
@@ -667,6 +733,7 @@ CREATE POLICY "Users can insert links to their WA instances" ON public.wa_instan
             AND whatsapp_instances.user_id = auth.uid()
         )
     );
+DROP POLICY IF EXISTS "Users can update links of their WA instances" ON public.wa_instance_links;
 CREATE POLICY "Users can update links of their WA instances" ON public.wa_instance_links
     FOR UPDATE USING (
         EXISTS (
@@ -675,6 +742,7 @@ CREATE POLICY "Users can update links of their WA instances" ON public.wa_instan
             AND whatsapp_instances.user_id = auth.uid()
         )
     );
+DROP POLICY IF EXISTS "Users can delete links of their WA instances" ON public.wa_instance_links;
 CREATE POLICY "Users can delete links of their WA instances" ON public.wa_instance_links
     FOR DELETE USING (
         EXISTS (
@@ -685,6 +753,7 @@ CREATE POLICY "Users can delete links of their WA instances" ON public.wa_instan
     );
 
 -- wa_messages
+DROP POLICY IF EXISTS "Users can view messages of their WA instances" ON public.wa_messages;
 CREATE POLICY "Users can view messages of their WA instances" ON public.wa_messages
     FOR SELECT USING (
         EXISTS (
@@ -693,6 +762,7 @@ CREATE POLICY "Users can view messages of their WA instances" ON public.wa_messa
             AND whatsapp_instances.user_id = auth.uid()
         )
     );
+DROP POLICY IF EXISTS "Users can insert messages to their WA instances" ON public.wa_messages;
 CREATE POLICY "Users can insert messages to their WA instances" ON public.wa_messages
     FOR INSERT WITH CHECK (
         EXISTS (
@@ -712,50 +782,70 @@ CREATE POLICY "Users can insert messages to their WA instances" ON public.wa_mes
 -- 18. SERVICE ROLE BYPASS (for backend with service_role key)
 -- ==============================================================================
 -- WhatsApp Instances
+DROP POLICY IF EXISTS "Service role full access on WA instances" ON public.whatsapp_instances;
 CREATE POLICY "Service role full access on WA instances"
     ON public.whatsapp_instances FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on WA links" ON public.wa_instance_links;
 CREATE POLICY "Service role full access on WA links"
     ON public.wa_instance_links FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on WA messages" ON public.wa_messages;
 CREATE POLICY "Service role full access on WA messages"
     ON public.wa_messages FOR ALL USING (auth.role() = 'service_role');
 
 -- AI-BOS (backend needs service_role for agent operations)
+DROP POLICY IF EXISTS "Service role full access on ai_company_profile" ON public.ai_company_profile;
 CREATE POLICY "Service role full access on ai_company_profile"
     ON public.ai_company_profile FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on ai_agents" ON public.ai_agents;
 CREATE POLICY "Service role full access on ai_agents"
     ON public.ai_agents FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on ai_goals" ON public.ai_goals;
 CREATE POLICY "Service role full access on ai_goals"
     ON public.ai_goals FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on ai_activities" ON public.ai_activities;
 CREATE POLICY "Service role full access on ai_activities"
     ON public.ai_activities FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on ai_suggestions" ON public.ai_suggestions;
 CREATE POLICY "Service role full access on ai_suggestions"
     ON public.ai_suggestions FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on ai_conversations" ON public.ai_conversations;
 CREATE POLICY "Service role full access on ai_conversations"
     ON public.ai_conversations FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on ai_conversation_messages" ON public.ai_conversation_messages;
 CREATE POLICY "Service role full access on ai_conversation_messages"
     ON public.ai_conversation_messages FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on ai_llm_usage" ON public.ai_llm_usage;
 CREATE POLICY "Service role full access on ai_llm_usage"
     ON public.ai_llm_usage FOR ALL USING (auth.role() = 'service_role');
 
 -- CRM (backend needs service_role for operations)
+DROP POLICY IF EXISTS "Service role full access on companies" ON public.companies;
 CREATE POLICY "Service role full access on companies"
     ON public.companies FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on contacts" ON public.contacts;
 CREATE POLICY "Service role full access on contacts"
     ON public.contacts FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on deals" ON public.deals;
 CREATE POLICY "Service role full access on deals"
     ON public.deals FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on tasks" ON public.tasks;
 CREATE POLICY "Service role full access on tasks"
     ON public.tasks FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on whatsapp_chats" ON public.whatsapp_chats;
 CREATE POLICY "Service role full access on whatsapp_chats"
     ON public.whatsapp_chats FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on whatsapp_messages" ON public.whatsapp_messages;
 CREATE POLICY "Service role full access on whatsapp_messages"
     ON public.whatsapp_messages FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on automations" ON public.automations;
 CREATE POLICY "Service role full access on automations"
     ON public.automations FOR ALL USING (auth.role() = 'service_role');
 
 -- Infra
+DROP POLICY IF EXISTS "Service role full access on cnpj_cache" ON public.cnpj_cache;
 CREATE POLICY "Service role full access on cnpj_cache"
     ON public.cnpj_cache FOR ALL USING (auth.role() = 'service_role');
+DROP POLICY IF EXISTS "Service role full access on scraping_jobs" ON public.scraping_jobs;
 CREATE POLICY "Service role full access on scraping_jobs"
     ON public.scraping_jobs FOR ALL USING (auth.role() = 'service_role');
 
