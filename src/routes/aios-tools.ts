@@ -7,6 +7,9 @@
 
 import { Router, Request, Response } from 'express';
 
+const BRIDGE_SECRET = process.env.WHATSAPP_BRIDGE_SECRET || '';
+const bridgeHeaders: Record<string, string> = BRIDGE_SECRET ? { 'X-Bridge-Secret': BRIDGE_SECRET } : {};
+
 let firecrawlKeyIndex = 0;
 function getFirecrawlApiKey() {
   const keys = (process.env.FIRECRAWL_API_KEY || "local").split(",").map(k => k.trim()).filter(Boolean);
@@ -209,8 +212,8 @@ router.post('/whatsapp/webhook', async (req: Request, res: Response) => {
  */
 router.get('/whatsapp/status', async (_req: Request, res: Response) => {
   try {
-    const whatsappUrl = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
-    const response = await fetch(`${whatsappUrl}/status`, { signal: AbortSignal.timeout(3000) });
+    const whatsappUrl = process.env.WHATSAPP_BRIDGE_URL || process.env.WHATSAPP_API_URL || 'http://localhost:8091';
+    const response = await fetch(`${whatsappUrl}/status`, { signal: AbortSignal.timeout(3000), headers: bridgeHeaders });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     res.json({ success: true, data });
@@ -224,8 +227,8 @@ router.get('/whatsapp/status', async (_req: Request, res: Response) => {
  */
 router.get('/whatsapp/qr', async (_req: Request, res: Response) => {
   try {
-    const whatsappUrl = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
-    const response = await fetch(`${whatsappUrl}/qr`, { signal: AbortSignal.timeout(3000) });
+    const whatsappUrl = process.env.WHATSAPP_BRIDGE_URL || process.env.WHATSAPP_API_URL || 'http://localhost:8091';
+    const response = await fetch(`${whatsappUrl}/qr`, { signal: AbortSignal.timeout(3000), headers: bridgeHeaders });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     res.json({ success: true, data });
@@ -246,11 +249,11 @@ router.post('/whatsapp/send', async (req: Request, res: Response) => {
       return;
     }
 
-    const whatsappUrl = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
+    const whatsappUrl = process.env.WHATSAPP_BRIDGE_URL || process.env.WHATSAPP_API_URL || 'http://localhost:8091';
     
     const response = await fetch(`${whatsappUrl}/send`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...bridgeHeaders },
       body: JSON.stringify({ to, message }),
     });
 
@@ -280,10 +283,11 @@ router.get('/whatsapp/validate', async (req: Request, res: Response) => {
       return;
     }
 
-    const whatsappUrl = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
+    const whatsappUrl = process.env.WHATSAPP_BRIDGE_URL || process.env.WHATSAPP_API_URL || 'http://localhost:8091';
     
     const response = await fetch(`${whatsappUrl}/validate?number=${encodeURIComponent(number)}`, {
       signal: AbortSignal.timeout(5000),
+      headers: bridgeHeaders,
     });
 
     if (!response.ok) {

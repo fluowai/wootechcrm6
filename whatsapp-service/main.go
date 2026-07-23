@@ -895,13 +895,15 @@ func (m *Manager) SetupRoutes() http.Handler {
 func main() {
 	webhookURL := os.Getenv("WEBHOOK_URL")
 	if webhookURL == "" {
-		webhookURL = "http://localhost:3000/api/whatsapp/webhook"
+		webhookURL = "http://localhost:3000/api/whatsapp/instances/webhook"
 	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8091"
 	}
+
+	bridgeSecret := os.Getenv("BRIDGE_SECRET")
 
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
@@ -910,6 +912,24 @@ func main() {
 
 	mgr := NewManager(dataDir, webhookURL)
 	handler := mgr.SetupRoutes()
+
+	// Auth middleware: X-Bridge-Secret header
+	if bridgeSecret != "" {
+		originalHandler := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Health check is public
+			if r.URL.Path == "/health" {
+				originalHandler.ServeHTTP(w, r)
+				return
+			}
+			secret := r.Header.Get("X-Bridge-Secret")
+			if secret != bridgeSecret {
+				writeJSON(w, 401, map[string]interface{}{"success": false, "error": "unauthorized"})
+				return
+			}
+			originalHandler.ServeHTTP(w, r)
+		})
+	}
 
 	// Auto-load existing instances from data directory
 	entries, err := os.ReadDir(dataDir)

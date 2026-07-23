@@ -337,3 +337,25 @@
 
 ### Next
 - Implementar Fase 1: Paperclip Docker + LLM Router + AI Gateway + Onboarding UI
+
+---
+
+## 2026-07-23 — Infrastructure Alignment: docker-compose.yml → Produção ✅
+
+### Changed
+- **docker-compose.yml**: Reescrito completamente para espelhar stack de produção:
+  - Removido: `version: '3.8'`, `postgres` (Supabase cloud), `firecrawl` (API cloud), `google-maps-scraper`
+  - Renomeado: `crm-app` → `app`, `redis` → `cache-redis`, `whatsapp-service` → `whatsapp-bridge`
+  - WhatsApp: porta 8080 → 8091, webhook URL → `/api/whatsapp/instances/webhook`
+  - Rede: `crm_network` (bridge) → `wootech1` (external/Traefik) + `wootechcrm6_internal` (overlay)
+  - Adicionado: `deploy:` section (replicas, update/rollback, placement constraints) em todos os serviços
+  - Adicionado: `BRIDGE_SECRET` env var para auth entre Node.js e Go service
+  - Volumes limpos: removido `postgres_data`, `gosom_data`
+- **server.ts**: `WHATSAPP_API_URL` → fallback para `WHATSAPP_BRIDGE_URL`, porta padrão 8091
+- **src/routes/whatsapp-instances.ts**: `WHATSAPP_API_URL` → fallback `WHATSAPP_BRIDGE_URL`, todas as chamadas axios com `headers: bridgeHeaders`
+- **src/routes/aios-tools.ts**: Todas as chamadas fetch com `headers: bridgeHeaders`
+- **whatsapp-service/main.go**: Porta padrão 8080 → 8091, webhook URL → `/api/whatsapp/instances/webhook`, auth middleware via `X-Bridge-Secret` header (health check é público)
+
+### Verified
+- `tsc --noEmit`: 0 errors
+- `go build`: OK (whatsmeow-service.exe)

@@ -41,7 +41,9 @@ function getFirecrawlApiKey() {
 const UNSTRUCTURED_URL    = process.env.UNSTRUCTURED_URL    || "http://localhost:8003";
 const CNPJ_SERVICE_URL    = process.env.CNPJ_SERVICE_URL    || "http://localhost:4000";
 const COLLY_SERVICE_URL   = process.env.COLLY_SERVICE_URL   || "http://localhost:5000";
-const WHATSAPP_API_URL    = process.env.WHATSAPP_API_URL    || "http://localhost:8080";
+const WHATSAPP_API_URL    = process.env.WHATSAPP_BRIDGE_URL  || process.env.WHATSAPP_API_URL || "http://localhost:8091";
+const BRIDGE_SECRET = process.env.WHATSAPP_BRIDGE_SECRET || '';
+const bridgeHeaders: Record<string, string> = BRIDGE_SECRET ? { 'X-Bridge-Secret': BRIDGE_SECRET } : {};
 
 // ── Redis Subscriber para o Whatsmeow (optional) ─────────────────
 if (redisConnection) {
@@ -652,7 +654,7 @@ app.post("/api/whatsapp/validate-numbers", async (req, res) => {
         let accountType = "unknown";
 
         try {
-          const waRes = await axios.get(`${WHATSAPP_API_URL}/validate?number=${withCountry}`, { timeout: 10000 });
+          const waRes = await axios.get(`${WHATSAPP_API_URL}/validate?number=${withCountry}`, { timeout: 10000, headers: bridgeHeaders });
           hasWhatsApp = waRes.data?.valid === true;
           jid = waRes.data?.jid || "";
           accountType = jid.includes("@g.us") ? "WhatsApp Group" : hasWhatsApp ? "WhatsApp" : "Não registrado";

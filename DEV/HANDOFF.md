@@ -139,7 +139,11 @@
 - `src/components/aios/InsightsView.tsx` — Analytics dashboard
 
 ### Infrastructure
-- `docker-compose.yml` — Paperclip + Hermes + Jarvis services (Ollama removed)
+- `docker-compose.yml` — Reescrito para alinhar com produção Docker Swarm
+  - Rede: `wootech1` (external/Traefik) + `wootechcrm6_internal` (overlay)
+  - Serviços: app, cache-redis, whatsapp-bridge (8091), browserless, unstructured, cnpj-service, colly-service, paperclip, hermes, jarvis
+  - Removidos: postgres (Supabase cloud), firecrawl (API cloud), google-maps-scraper
+  - Deploy config: replicas, update/rollback, placement constraints
 - `deploy/deploy-aios.sh` — Deploy script for Hermes + Jarvis (NEW)
 - `.env.example` — Updated with Hermes/Jarvis env vars
 - `server.ts` — Mounted hermes/jarvis routers, updated healthcheck
@@ -152,7 +156,7 @@
 5. Verificar Jarvis dashboard em http://localhost:8443
 6. Testar fluxo completo de onboarding
 7. Monitorar execution engine nos logs
-8. **WhatsApp Fase 2**: Refatorar Go service multi-instance
+8. ~~WhatsApp Fase 2: Refatorar Go service multi-instance~~ ✅
 
 ## Decisões Chave
 - 12 provedores LLM gratuitos integrados + Hermes (gateway mode)
@@ -163,3 +167,5 @@
 - WebSocket para updates em tempo real
 - Token budget por agente com auto-pause
 - Memory limits: 512MB por container Hermes/Jarvis
+- **WhatsApp Bridge**: porta 8091, auth via `X-Bridge-Secret` header
+- **Firecrawl**: usa API cloud, não self-hosted

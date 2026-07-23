@@ -1,55 +1,54 @@
-version: '3.8'
+# ==============================================================
+# WOOTECH CRM — STACK DE PRODUÇÃO
+# Docker Swarm + Traefik + Supabase Cloud
+# ==============================================================
 
 networks:
-  crm_network:
-    driver: bridge
-
-# ==============================================================
-# WOOTECH CRM — STACK COMPLETA DE LEAD INTELLIGENCE
-# 12 ferramentas open source self-hosted
-# ==============================================================
+  wootech1:
+    external: true
+  wootechcrm6_internal:
+    driver: overlay
 
 services:
 
-  # ── 1. CRM App Principal (Vite + Express + BullMQ) ──────────
-  crm-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  # ── App Principal (Vite + Express + BullMQ) ─────────────────
+  app:
     image: ghcr.io/fluowai/wootechcrm6:latest
-    container_name: wootech_crm_app
+    container_name: app
     restart: always
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-}
-      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      # Supabase
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_DB_URL=${SUPABASE_DB_URL}
+      # Redis
+      - REDIS_URL=redis://cache-redis:6379
       # Serviços internos
-      - REDIS_URL=redis://redis:6379
-      - SCRAPER_API_URL=http://google-maps-scraper:8080        # gosom (1)
-      - BROWSERLESS_URL=ws://browserless:3000                  # Playwright/Puppeteer (7/8)
+      - BROWSERLESS_URL=ws://browserless:3000
       - BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-wootech-token}
-      - FIRECRAWL_URL=http://firecrawl:3002                   # Firecrawl (12)
-      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-local}
-      - UNSTRUCTURED_URL=http://unstructured:8000              # Unstructured (11)
-      - CNPJ_SERVICE_URL=http://cnpj-service:4000             # CNPJ Pipeline (6)
-      - COLLY_SERVICE_URL=http://colly-service:5000           # Colly Go Crawler (complementar)
-      - WHATSAPP_API_URL=http://whatsapp-service:8080         # Whatsmeow (complementar)
+      - FIRECRAWL_URL=https://api.firecrawl.dev
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - UNSTRUCTURED_URL=http://unstructured:8000
+      - CNPJ_SERVICE_URL=http://cnpj-service:4000
+      - COLLY_SERVICE_URL=http://colly-service:5000
+      # WhatsApp Bridge
+      - WHATSAPP_BRIDGE_URL=http://whatsapp-bridge:8091
+      - WHATSAPP_BRIDGE_SECRET=${WHATSAPP_BRIDGE_SECRET:-wootech-wa-secret-change-in-prod}
       # AI-BOS Services
-      - PAPERCLIP_URL=http://paperclip:4100                   # Agent runtime (interno)
+      - PAPERCLIP_URL=http://paperclip:4100
       - PAPERCLIP_SECRET_KEY=${PAPERCLIP_SECRET_KEY:-wootech-paperclip-secret-change-in-prod}
-      # AI-BOS: Hermes + Jarvis
       - HERMES_URL=http://hermes:8642
       - JARVIS_URL=http://jarvis:8443
       - HERMES_DASHBOARD_PASS=${HERMES_DASHBOARD_PASS:-admin}
       - JARVIS_USERNAME=${JARVIS_USERNAME:-admin}
       - JARVIS_PASSWORD=${JARVIS_PASSWORD:-admin}
       - JARVIS_SECRET=${JARVIS_SECRET:-wootech-jarvis-secret-change-in-prod}
-      # LLM Provider API Keys (fallback chain)
+      # LLM Provider API Keys
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -68,41 +67,39 @@ services:
       - "traefik.http.routers.wootechcrm.tls.certresolver=letsencrypt"
       - "traefik.http.services.wootechcrm.loadbalancer.server.port=3000"
     depends_on:
-      - postgres
-      - redis
-      - whatsapp-service
-      - google-maps-scraper
+      - cache-redis
+      - whatsapp-bridge
       - browserless
-      - firecrawl
+      - unstructured
       - cnpj-service
       - colly-service
       - paperclip
       - hermes
       - jarvis
     networks:
-      - crm_network
+      - wootech1
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
-  # ── 2. PostgreSQL ────────────────────────────────────────────
-  postgres:
-    image: postgres:15-alpine
-    container_name: crm-postgres
-    restart: always
-    environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-crm_db}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - crm_network
-
-  # ── 3. Redis (BullMQ + Pub/Sub WhatsApp) ─────────────────────
-  redis:
+  # ── Redis (BullMQ + Pub/Sub) ────────────────────────────────
+  cache-redis:
     image: redis:7-alpine
-    container_name: crm-redis
+    container_name: cache-redis
     restart: always
     ports:
       - "6379:6379"
@@ -110,39 +107,71 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
-  # ── FERRAMENTA 1: Google Maps Scraper (gosom) ─────────────────
-  # https://github.com/gosom/google-maps-scraper
-  # Extrai: nome, telefone, site, email, lat/lng, avaliações, horário
-  # API: POST /api/v1/search | GET /api/v1/jobs/:id
-  google-maps-scraper:
-    image: gosom/google-maps-scraper:latest
-    container_name: gmaps-scraper
+  # ── WhatsApp Bridge (Whatsmeow Multi-Instance) ──────────────
+  # Multi-instância: gerencia N conexões WhatsApp simultâneas
+  # API: /instances (CRUD), /instances/:id/connect, /instances/:id/send
+  # Webhook: POST com instance_id para roteamento no Node.js
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-service
+      dockerfile: Dockerfile
+    image: ghcr.io/fluowai/wootechcrm6-whatsapp:latest
+    container_name: whatsapp-bridge
     restart: always
     ports:
-      - "8000:8080"
+      - "8091:8091"
     environment:
-      - PORT=8080
-      - PLAYWRIGHT_HEADLESS=true
-      - CONCURRENCY=2
-      - DATABASE_URL=${DATABASE_URL:-}
-      - CACHE_DIR=/data/cache
+      - PORT=8091
+      - REDIS_URL=redis://cache-redis:6379
+      - WEBHOOK_URL=http://app:3000/api/whatsapp/instances/webhook
+      - DATA_DIR=/app/instances
+      - BRIDGE_SECRET=${WHATSAPP_BRIDGE_SECRET:-wootech-wa-secret-change-in-prod}
     volumes:
-      - gosom_data:/data
+      - whatsapp_data:/app/instances
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
-  # ── FERRAMENTAS 7+8: Browserless Chrome (Playwright + Puppeteer) ──
-  # https://github.com/microsoft/playwright
-  # https://github.com/puppeteer/puppeteer
-  # Acesso via CDP WebSocket — usado pelo scraper.ts e Crawlee
+  # ── Browserless Chrome (Playwright + Puppeteer) ──────────────
   browserless:
     image: ghcr.io/browserless/chromium:latest
     container_name: browserless
     restart: always
     ports:
-      - "3001:3000"
+      - "3000:3000"
     environment:
       - CONCURRENT=10
       - TIMEOUT=60000
@@ -153,85 +182,85 @@ services:
       - KEEP_ALIVE=true
     shm_size: '2gb'
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
-  # ── FERRAMENTA 9: Crawlee (integrado no enrichment-service Node.js) ──
-  # https://github.com/apify/crawlee
-  # Roda dentro do enrichment-service como library — sem container separado
-
-  # ── FERRAMENTA 10: Cheerio (integrado no enrichment-service Node.js) ──
-  # https://github.com/cheeriojs/cheerio
-  # Roda dentro do enrichment-service como library — sem container separado
-
-  # ── FERRAMENTA 12: Firecrawl (self-hosted) ───────────────────
-  # https://github.com/mendableai/firecrawl
-  # Transforma qualquer site em Markdown/JSON estruturado
-  # API: POST /v1/scrape | POST /v1/crawl
-  firecrawl:
-    image: ghcr.io/mendableai/firecrawl:latest
-    container_name: firecrawl
-    restart: always
-    ports:
-      - "3002:3002"
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://browserless:3000
-      - USE_DB_AUTHENTICATION=false
-      - PORT=3002
-      - HOST=0.0.0.0
-      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-local}
-      - NUM_WORKERS_PER_QUEUE=4
-      - BULL_AUTH_KEY=wootech-firecrawl
-    depends_on:
-      - redis
-      - browserless
-    networks:
-      - crm_network
-
-  # ── FERRAMENTA 11: Unstructured (extração de PDFs, DOCX, XLSX) ──
-  # https://github.com/Unstructured-IO/unstructured
-  # API: POST /general/v0/general  Content-Type: multipart/form-data
+  # ── Unstructured (extração de PDFs, DOCX, XLSX) ─────────────
   unstructured:
     image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
     container_name: unstructured
     restart: always
     ports:
-      - "8003:8000"
+      - "8000:8000"
     environment:
       - PORT=8000
       - UNSTRUCTURED_API_KEY=${UNSTRUCTURED_API_KEY:-local}
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
-  # ── FERRAMENTA 6: CNPJ Service (Node.js — Receita Federal) ───
-  # Pipeline CNPJ self-hosted: BrasilAPI + cache PostgreSQL local
-  # Rotas: GET /cnpj/:cnpj  |  GET /cnpj/:cnpj/socios  |  GET /cnpj/search?nome=
+  # ── CNPJ Service (Node.js — Receita Federal) ────────────────
   cnpj-service:
-    build:
-      context: ./cnpj-service
-      dockerfile: Dockerfile
+    image: ghcr.io/fluowai/wootechcrm6:latest
     container_name: cnpj-service
     restart: always
     ports:
       - "4000:4000"
     environment:
       - PORT=4000
-      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-crm_db}
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
+      - REDIS_URL=redis://cache-redis:6379
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
-  # ── Colly Crawler Service (Go) ────────────────────────────────
-  # Colly: https://github.com/gocolly/colly
-  # Crawler ultra-rápido em Go — complementa o Browserless
-  # API: POST /crawl { url, depth, extractEmails, extractPhones }
+  # ── Colly Crawler Service (Go) ──────────────────────────────
   colly-service:
-    build:
-      context: ./colly-service
-      dockerfile: Dockerfile
+    image: ghcr.io/fluowai/wootechcrm6:latest
     container_name: colly-service
     restart: always
     ports:
@@ -239,12 +268,25 @@ services:
     environment:
       - PORT=5000
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
   # ── AI-BOS: Paperclip Agent Runtime ─────────────────────────
-  # https://github.com/paperclipai/paperclip
-  # Runtime invisível para agentes autônomos — compartilha DB com CRM
-  # Dashboard interno: http://localhost:4100 (nunca expor externamente)
   paperclip:
     image: ghcr.io/paperclipai/paperclip:latest
     container_name: paperclip
@@ -253,21 +295,32 @@ services:
       - "127.0.0.1:4100:4100"
     environment:
       - PORT=4100
-      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-crm_db}
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://cache-redis:6379
       - NODE_ENV=production
       - LOG_LEVEL=info
       - SECRET_KEY=${PAPERCLIP_SECRET_KEY:-wootech-paperclip-secret-change-in-prod}
     depends_on:
-      - postgres
-      - redis
+      - cache-redis
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
   # ── AI-BOS: Hermes Agent (Self-Hosted LLM Gateway) ─────────
-  # https://github.com/NousResearch/hermes-agent
-  # Gateway mode with OpenRouter backend — zero local inference cost
-  # Dashboard: http://localhost:9119
   hermes:
     image: nousresearch/hermes-agent:latest
     container_name: hermes-agent
@@ -285,12 +338,25 @@ services:
     mem_limit: 512m
     cpus: 1.0
     networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
-  # ── AI-BOS: Jarvis (Self-Hosted AI Assistant) ─────────────
-  # https://github.com/dev-core-busy/jarvis
-  # Python/FastAPI — VNC, WhatsApp, RAG, Docker integration
-  # Dashboard: http://localhost:8443
+  # ── AI-BOS: Jarvis (Self-Hosted AI Assistant) ──────────────
   jarvis:
     image: dev-core-busy/jarvis:latest
     container_name: jarvis
@@ -303,45 +369,30 @@ services:
       - JARVIS_PASSWORD=${JARVIS_PASSWORD:-admin}
       - JARVIS_SECRET=${JARVIS_SECRET:-wootech-jarvis-secret-change-in-prod}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-crm_db}
+      - REDIS_URL=redis://cache-redis:6379
     depends_on:
-      - redis
-      - postgres
+      - cache-redis
     mem_limit: 512m
     cpus: 1.0
     networks:
-      - crm_network
-
-  # ── FERRAMENTA Whatsmeow (Go — WhatsApp Multi-Instance) ────────
-  # https://github.com/tulir/whatsmeow
-  # Multi-instância: gerencia N conexões WhatsApp simultâneas
-  # API: /instances (CRUD), /instances/:id/connect, /instances/:id/send
-  # Webhook: POST com instance_id para roteamento no Node.js
-  whatsapp-service:
-    build:
-      context: ./whatsapp-service
-      dockerfile: Dockerfile
-    image: ghcr.io/fluowai/wootechcrm6-whatsapp:latest
-    container_name: wootech_whatsapp_service
-    restart: always
-    ports:
-      - "8080:8080"
-    environment:
-      - REDIS_URL=redis:6379
-      - WEBHOOK_URL=http://crm-app:3000/api/whatsapp/webhook
-      - DATA_DIR=/app/instances
-    depends_on:
-      - redis
-    volumes:
-      - whatsapp_data:/app/instances
-    networks:
-      - crm_network
+      - wootechcrm6_internal
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 30s
+        order: start-first
+      rollback_config:
+        parallelism: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 3
+        window: 60s
+      placement:
+        constraints:
+          - node.labels.app == true
 
 volumes:
-  postgres_data:
   redis_data:
   whatsapp_data:
-  gosom_data:
-  hermes_data:
-  jarvis_data:

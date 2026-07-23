@@ -10,7 +10,9 @@ import { Server as SocketIOServer } from 'socket.io';
 import { supabaseAdmin } from '../lib/supabase';
 import axios from 'axios';
 
-const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'http://localhost:8080';
+const WHATSAPP_API_URL = process.env.WHATSAPP_BRIDGE_URL || process.env.WHATSAPP_API_URL || 'http://localhost:8091';
+const BRIDGE_SECRET = process.env.WHATSAPP_BRIDGE_SECRET || '';
+const bridgeHeaders = BRIDGE_SECRET ? { 'X-Bridge-Secret': BRIDGE_SECRET } : {};
 
 // ─── Mappers: snake_case ↔ camelCase ─────────────────────────────
 
@@ -88,7 +90,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
       const enriched = await Promise.all(
         (data || []).map(async (row: any) => {
           try {
-            const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${row.id}/status`, { timeout: 3000 });
+            const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${row.id}/status`, { timeout: 3000, headers: bridgeHeaders });
             return {
               ...instanceToCamel(row),
               status: goRes.data?.status || row.status,
@@ -137,7 +139,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
           id: dbRow.id,
           name,
           webhookUrl: `${process.env.APP_URL || 'http://localhost:3000'}/api/whatsapp/instances/webhook`,
-        }, { timeout: 5000 });
+        }, { timeout: 5000, headers: bridgeHeaders });
       } catch (goErr: any) {
         console.warn('[WA Instances] Go service create failed:', goErr.message);
       }
@@ -167,7 +169,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
       let liveStatus = data.status;
       let phoneNumber = data.phone_number;
       try {
-        const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${id}/status`, { timeout: 3000 });
+        const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${id}/status`, { timeout: 3000, headers: bridgeHeaders });
         liveStatus = goRes.data?.status || data.status;
         phoneNumber = goRes.data?.phoneNumber || data.phone_number;
       } catch { /* Go offline */ }
@@ -218,12 +220,12 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
 
       // Disconnect from Go first
       try {
-        await axios.post(`${WHATSAPP_API_URL}/instances/${id}/disconnect`, {}, { timeout: 3000 });
+        await axios.post(`${WHATSAPP_API_URL}/instances/${id}/disconnect`, {}, { timeout: 3000, headers: bridgeHeaders });
       } catch { /* ignore */ }
 
       // Delete from Go
       try {
-        await axios.delete(`${WHATSAPP_API_URL}/instances/${id}`, { timeout: 3000 });
+        await axios.delete(`${WHATSAPP_API_URL}/instances/${id}`, { timeout: 3000, headers: bridgeHeaders });
       } catch { /* ignore */ }
 
       // Delete from Supabase (cascades to links and messages)
@@ -252,7 +254,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
         .eq('id', id);
 
       // Tell Go to connect
-      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/${id}/connect`, {}, { timeout: 30000 });
+      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/${id}/connect`, {}, { timeout: 30000, headers: bridgeHeaders });
 
       // Sync status back
       const newStatus = goRes.data?.status || 'connecting';
@@ -272,7 +274,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
     try {
       const { id } = req.params;
 
-      await axios.post(`${WHATSAPP_API_URL}/instances/${id}/disconnect`, {}, { timeout: 5000 });
+      await axios.post(`${WHATSAPP_API_URL}/instances/${id}/disconnect`, {}, { timeout: 5000, headers: bridgeHeaders });
 
       await supabaseAdmin
         .from('whatsapp_instances')
@@ -295,7 +297,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
         .update({ status: 'connecting' })
         .eq('id', id);
 
-      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/${id}/reconnect`, {}, { timeout: 30000 });
+      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/${id}/reconnect`, {}, { timeout: 30000, headers: bridgeHeaders });
 
       const newStatus = goRes.data?.status || 'connecting';
       await supabaseAdmin
@@ -313,7 +315,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
   router.get('/instances/:id/qr', async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${id}/qr`, { timeout: 5000 });
+      const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${id}/qr`, { timeout: 5000, headers: bridgeHeaders });
       res.json({ success: true, qr: goRes.data?.qr, status: goRes.data?.status });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -330,7 +332,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
         return res.status(400).json({ success: false, error: 'to and message are required' });
       }
 
-      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/${id}/send`, { to, message }, { timeout: 10000 });
+      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/${id}/send`, { to, message }, { timeout: 10000, headers: bridgeHeaders });
 
       // Persist outbound message
       if (goRes.data?.success) {
@@ -438,7 +440,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
         return res.status(400).json({ success: false, error: 'number is required' });
       }
 
-      const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${id}/validate?number=${number}`, { timeout: 10000 });
+      const goRes = await axios.get(`${WHATSAPP_API_URL}/instances/${id}/validate?number=${number}`, { timeout: 10000, headers: bridgeHeaders });
       res.json({ success: true, valid: goRes.data?.valid, jid: goRes.data?.jid });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -590,7 +592,7 @@ export default function createWhatsAppInstancesRouter(io: SocketIOServer) {
   // ─── Bulk: Reconnect all ────────────────────────────────────────
   router.post('/instances/reconnect-all', async (req: Request, res: Response) => {
     try {
-      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/reconnect-all`, {}, { timeout: 60000 });
+      const goRes = await axios.post(`${WHATSAPP_API_URL}/instances/reconnect-all`, {}, { timeout: 60000, headers: bridgeHeaders });
       res.json({ success: true, reconnecting: goRes.data?.reconnecting });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
