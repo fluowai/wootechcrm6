@@ -45,3 +45,13 @@ jobs:
           context: ./colly-service
           push: true
           tags: ${{ env.IMAGE_PREFIX }}-colly-service:latest
+
+      - name: Clone Firecrawl (Option B)
+        run: git clone https://github.com/mendableai/firecrawl.git
+
+      - name: Build and push Firecrawl API
+        uses: docker/build-push-action@v5
+        with:
+          context: ./firecrawl/apps/api
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}-firecrawl:latest

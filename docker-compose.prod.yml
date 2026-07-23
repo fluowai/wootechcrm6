@@ -191,27 +191,7 @@ services:
           memory: 3G
 
   firecrawl:
-    image: mendableai/firecrawl:latest
-    environment:
-      - REDIS_URL=redis://cache-redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://browserless:3000
-      - USE_DB_AUTHENTICATION=false
-      - PORT=3002
-      - FIRECRAWL_API_KEY=local
-      - NUM_WORKERS_PER_QUEUE=4
-      - BULL_AUTH_KEY=wootech-firecrawl
-    networks:
-      - nexus360_internal
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-      resources:
-        limits:
-          memory: 2G
-
-  firecrawl:
-    image: mendableai/firecrawl:latest
+    image: ghcr.io/fluowai/wootechcrm6-firecrawl:latest
     environment:
       - REDIS_URL=redis://cache-redis:6379
       - PLAYWRIGHT_MICROSERVICE_URL=http://browserless:3000
