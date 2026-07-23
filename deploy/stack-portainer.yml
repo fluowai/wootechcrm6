@@ -33,7 +33,7 @@ services:
       - BROWSERLESS_URL=ws://browserless:3000
       - BROWSERLESS_TOKEN=wootech-token
       - FIRECRAWL_URL=https://api.firecrawl.dev
-      - FIRECRAWL_API_KEY=YOUR_FIRECRAWL_API_KEY
+      - FIRECRAWL_API_KEY=fc-519978c366ad4871a49f507328c9dce5
       - UNSTRUCTURED_URL=http://unstructured:8000
       - CNPJ_SERVICE_URL=http://cnpj-service:4000
       - COLLY_SERVICE_URL=http://colly-service:5000
