@@ -68,8 +68,8 @@ services:
       WHATSAPP_BRIDGE_SECRET: "${WHATSAPP_BRIDGE_SECRET:-dev-whatsapp-bridge-secret}"
       BROWSERLESS_URL: "ws://browserless:3000"
       BROWSERLESS_TOKEN: "wootech-prod-token"
-      FIRECRAWL_URL: "http://firecrawl:3002"
-      FIRECRAWL_API_KEY: "local"
+      FIRECRAWL_URL: "https://api.firecrawl.dev"
+      FIRECRAWL_API_KEY: "fc-519978c366ad4871a49f507328c9dce5"
       UNSTRUCTURED_URL: "http://unstructured:8000"
       CNPJ_SERVICE_URL: "http://cnpj-service:4000"
       COLLY_SERVICE_URL: "http://colly-service:5000"
@@ -190,27 +190,7 @@ services:
         limits:
           memory: 3G
 
-  firecrawl:
-    image: ghcr.io/fluowai/wootechcrm6-firecrawl:latest
-    environment:
-      - REDIS_URL=redis://cache-redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://browserless:3000
-      - USE_DB_AUTHENTICATION=false
-      - PORT=3002
-      - FIRECRAWL_API_KEY=local
-      - NUM_WORKERS_PER_QUEUE=4
-      - BULL_AUTH_KEY=wootech-firecrawl
-      - DATABASE_URL=postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0
-      - NUQ_DATABASE_URL=postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0
-    networks:
-      - nexus360_internal
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-      resources:
-        limits:
-          memory: 2G
+
 
   unstructured:
     image: downloads.unstructured.io/unstructured-io/unstructured-api:latest

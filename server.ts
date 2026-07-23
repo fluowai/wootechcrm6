@@ -10,6 +10,8 @@ import { Server } from "socket.io";
 import http from "http";
 import aiOsRouter from "./src/routes/ai-os.js";
 import aiOsToolsRouter from "./src/routes/aios-tools.js";
+import { initWebSocket } from "./src/lib/websocket-events.js";
+import { runExecutionEngine } from "./src/lib/execution-engine.js";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
@@ -25,32 +27,53 @@ const SCRAPER_API_URL     = process.env.SCRAPER_API_URL     || "http://localhost
 const BROWSERLESS_URL     = process.env.BROWSERLESS_URL     || "ws://localhost:3001";
 const BROWSERLESS_TOKEN   = process.env.BROWSERLESS_TOKEN   || "wootech-token";
 const FIRECRAWL_URL       = process.env.FIRECRAWL_URL       || "http://localhost:3002";
-const FIRECRAWL_API_KEY   = process.env.FIRECRAWL_API_KEY   || "local";
+let firecrawlKeyIndex = 0;
+function getFirecrawlApiKey() {
+  const keys = (process.env.FIRECRAWL_API_KEY || "local").split(",").map(k => k.trim()).filter(Boolean);
+  const key = keys[firecrawlKeyIndex % keys.length] || "local";
+  firecrawlKeyIndex++;
+  return key;
+}
 const UNSTRUCTURED_URL    = process.env.UNSTRUCTURED_URL    || "http://localhost:8003";
 const CNPJ_SERVICE_URL    = process.env.CNPJ_SERVICE_URL    || "http://localhost:4000";
 const COLLY_SERVICE_URL   = process.env.COLLY_SERVICE_URL   || "http://localhost:5000";
 const WHATSAPP_API_URL    = process.env.WHATSAPP_API_URL    || "http://localhost:8080";
 
-// ── Redis Subscriber para o Whatsmeow ────────────────────────────
-const redisSubscriber = redisConnection.duplicate();
-redisSubscriber.subscribe("whatsapp_events", (err) => {
-  if (err) console.error("Erro ao assinar canal Redis:", err);
-});
-redisSubscriber.on("message", (channel, message) => {
-  if (channel === "whatsapp_events") {
-    try {
-      const data = JSON.parse(message);
-      io.emit("whatsapp_event", data);
-    } catch (e) {
-      console.error("Erro no parse do Redis Message", e);
-    }
+// ── Redis Subscriber para o Whatsmeow (optional) ─────────────────
+if (redisConnection) {
+  try {
+    const redisSubscriber = redisConnection.duplicate();
+    redisSubscriber.subscribe("whatsapp_events", (err) => {
+      if (err) console.error("Erro ao assinar canal Redis:", err);
+    });
+    redisSubscriber.on("message", (channel, message) => {
+      if (channel === "whatsapp_events") {
+        try {
+          const data = JSON.parse(message);
+          io.emit("whatsapp_event", data);
+        } catch (e) {
+          console.error("Erro no parse do Redis Message", e);
+        }
+      }
+    });
+  } catch {
+    console.warn("[Server] Redis subscriber unavailable — WhatsApp events disabled");
   }
-});
+} else {
+  console.warn("[Server] Redis not configured — WhatsApp events disabled");
+}
 
 io.on("connection", (socket) => {
   console.log("🟢 Cliente Frontend conectado via WebSocket:", socket.id);
   socket.on("disconnect", () => console.log("🔴 Cliente desconectado:", socket.id));
 });
+
+// Initialize AIOS WebSocket handler
+initWebSocket(io);
+
+// Start execution engine (runs every 5 minutes)
+setInterval(runExecutionEngine, 5 * 60 * 1000);
+console.log("🤖 AIOS Execution Engine started");
 
 const PORT = parseInt(process.env.PORT || "3000");
 app.use(express.json());
@@ -386,7 +409,7 @@ app.post("/api/enrichment/website", async (req, res) => {
           waitFor: 2000,
         },
         {
-          headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${getFirecrawlApiKey()}`, "Content-Type": "application/json" },
           timeout: 20000,
         }
       );
@@ -557,7 +580,7 @@ app.post("/api/enrichment/crawl", async (req, res) => {
         scrapeOptions: { formats: ["markdown", "html"] },
       },
       {
-        headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${getFirecrawlApiKey()}`, "Content-Type": "application/json" },
         timeout: 10000,
       }
     );
@@ -572,7 +595,7 @@ app.post("/api/enrichment/crawl", async (req, res) => {
 app.get("/api/enrichment/crawl/:jobId", async (req, res) => {
   try {
     const r = await axios.get(`${FIRECRAWL_URL}/v1/crawl/${req.params.jobId}`, {
-      headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}` },
+      headers: { Authorization: `Bearer ${getFirecrawlApiKey()}` },
       timeout: 8000,
     });
     res.json(r.data);

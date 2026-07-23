@@ -6,6 +6,15 @@
  */
 
 import { Router, Request, Response } from 'express';
+
+let firecrawlKeyIndex = 0;
+function getFirecrawlApiKey() {
+  const keys = (process.env.FIRECRAWL_API_KEY || "local").split(",").map(k => k.trim()).filter(Boolean);
+  const key = keys[firecrawlKeyIndex % keys.length] || "local";
+  firecrawlKeyIndex++;
+  return key;
+}
+
 import { supabaseAdmin } from '../lib/supabase';
 import { aiGateway } from '../lib/ai-gateway';
 import { generateCompletion } from '../lib/llm-router';
@@ -292,7 +301,7 @@ router.post('/enrichment/run', async (req: Request, res: Response) => {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.FIRECRAWL_API_KEY || 'local'}`,
+          'Authorization': `Bearer ${getFirecrawlApiKey()}`,
         },
         body: JSON.stringify({ url }),
       });
