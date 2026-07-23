@@ -8,6 +8,8 @@ import { addScrapingJob, redisConnection } from "./src/lib/queue.js";
 import "./src/lib/worker.js";
 import { Server } from "socket.io";
 import http from "http";
+import aiOsRouter from "./src/routes/ai-os.js";
+import aiOsToolsRouter from "./src/routes/aios-tools.js";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
@@ -87,10 +89,18 @@ app.get("/api/health", async (req, res) => {
     checkService("cnpj",         `${CNPJ_SERVICE_URL}/health`),
     checkService("colly",        `${COLLY_SERVICE_URL}/health`),
     checkService("whatsapp",     `${WHATSAPP_API_URL}/health`),
+    checkService("paperclip",    `${process.env.PAPERCLIP_URL || "http://localhost:4100"}/health`),
+    checkService("ollama",       `${process.env.OLLAMA_URL || "http://localhost:11434"}/api/tags`),
   ]);
 
   res.json({ status: "ok", service: "Wootech CRM Engine", services: checks, timestamp: new Date().toISOString() });
 });
+
+// =================================================================
+// AI-BOS (Paperclip Agent Runtime)
+// =================================================================
+app.use("/api/ai-os", aiOsRouter);
+app.use("/api/ai-os/tools", aiOsToolsRouter);
 
 // =================================================================
 // SUPABASE PASSTHROUGH

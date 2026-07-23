@@ -7,7 +7,7 @@ import {
   Search,
   MessageSquare,
   Zap,
-  Bot,
+  Brain,
   Calendar,
   UserCheck,
   BarChart3,
@@ -25,7 +25,7 @@ export type ActiveTab =
   | 'prospecting'
   | 'whatsapp'
   | 'automations'
-  | 'ai_assistant'
+  | 'ai_center'
   | 'agenda'
   | 'team'
   | 'reports';
@@ -53,7 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'prospecting', label: 'Prospecção GMB', icon: Search },
     { id: 'whatsapp', label: 'WhatsApp Inbox', icon: MessageSquare, badge: unreadWhatsApp },
     { id: 'automations', label: 'Automações (n8n)', icon: Zap },
-    { id: 'ai_assistant', label: 'IA Comercial', icon: Bot },
+    { id: 'ai_center', label: 'AI Center', icon: Brain },
     { id: 'agenda', label: 'Agenda & Tarefas', icon: Calendar },
     { id: 'team', label: 'Equipe & Metas', icon: UserCheck },
     { id: 'reports', label: 'Relatórios & BI', icon: BarChart3 },

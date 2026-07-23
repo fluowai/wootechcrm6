@@ -8,7 +8,7 @@ import { KanbanView } from './components/kanban/KanbanView';
 import { ProspectingView } from './components/prospecting/ProspectingView';
 import { WhatsAppView } from './components/whatsapp/WhatsAppView';
 import { AutomationsView } from './components/automations/AutomationsView';
-import { AIAssistantView } from './components/ai/AIAssistantView';
+import { AICenterView } from './components/aios/AICenterView';
 import { AgendaView } from './components/agenda/AgendaView';
 import { TeamView } from './components/team/TeamView';
 import { ReportsView } from './components/reports/ReportsView';
@@ -279,7 +279,7 @@ function AppContent() {
             onMoveDeal={handleMoveDeal}
             onOpenNewDealModal={() => setShowNewDealModal(true)}
             onOpenWhatsAppChat={handleOpenWhatsAppChat}
-            onGenerateAIPitch={() => setActiveTab('ai_assistant')}
+            onGenerateAIPitch={() => setActiveTab('ai_center')}
           />
         )}
 
@@ -300,7 +300,7 @@ function AppContent() {
           />
         )}
 
-        {activeTab === 'ai_assistant' && <AIAssistantView />}
+        {activeTab === 'ai_center' && <AICenterView />}
 
         {activeTab === 'agenda' && (
           <AgendaView

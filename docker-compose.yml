@@ -39,6 +39,23 @@ services:
       - CNPJ_SERVICE_URL=http://cnpj-service:4000             # CNPJ Pipeline (6)
       - COLLY_SERVICE_URL=http://colly-service:5000           # Colly Go Crawler (complementar)
       - WHATSAPP_API_URL=http://whatsapp-service:8080         # Whatsmeow (complementar)
+      # AI-BOS Services
+      - PAPERCLIP_URL=http://paperclip:4100                   # Agent runtime (interno)
+      - PAPERCLIP_SECRET_KEY=${PAPERCLIP_SECRET_KEY:-wootech-paperclip-secret-change-in-prod}
+      - OLLAMA_URL=http://ollama:11434                        # LLM local backup
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+      # LLM Provider API Keys (fallback chain)
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-}
+      - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY:-}
+      - COHERE_API_KEY=${COHERE_API_KEY:-}
+      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY:-}
+      - PUTER_API_KEY=${PUTER_API_KEY:-}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.wootechcrm.rule=Host(`crm.suaempresa.com`)"
@@ -54,6 +71,8 @@ services:
       - firecrawl
       - cnpj-service
       - colly-service
+      - paperclip
+      - ollama
     networks:
       - crm_network
 
@@ -216,6 +235,55 @@ services:
     networks:
       - crm_network
 
+  # ── AI-BOS: Paperclip Agent Runtime ─────────────────────────
+  # https://github.com/paperclipai/paperclip
+  # Runtime invisível para agentes autônomos — compartilha DB com CRM
+  # Dashboard interno: http://localhost:4100 (nunca expor externamente)
+  paperclip:
+    image: ghcr.io/paperclipai/paperclip:latest
+    container_name: paperclip
+    restart: always
+    ports:
+      - "127.0.0.1:4100:4100"
+    environment:
+      - PORT=4100
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-crm_db}
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - SECRET_KEY=${PAPERCLIP_SECRET_KEY:-wootech-paperclip-secret-change-in-prod}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - crm_network
+
+  # ── AI-BOS: Ollama Local LLM (Backup Ultimate) ──────────────
+  # https://github.com/ollama/ollama
+  # LLM local sem rate limits — seguro quando nuvens falham
+  # Modelo padrão: llama3.1:8b (4GB RAM) — configurável via .env
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: always
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODELS=/models
+      - OLLAMA_NUM_PARALLEL=4
+    volumes:
+      - ollama_data:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - crm_network
+
   # ── FERRAMENTA Whatsmeow (Go — WhatsApp) ─────────────────────
   # https://github.com/tulir/whatsmeow
   # Valida números + envia mensagens + recebe eventos
@@ -243,3 +311,4 @@ volumes:
   redis_data:
   whatsapp_data:
   gosom_data:
+  ollama_data:
