@@ -42,7 +42,7 @@ services:
       TRAEFIK_FRONTEND_URL: "http://nexus360_frontend:80"
       TRAEFIK_API_URL: "http://nexus360_api:10000"
       TRAEFIK_CERT_RESOLVER: "letsencryptresolver"
-      TRAEFIK_ROUTER_SERVICE: "nexus360_frontend"
+      TRAEFIK_ROUTER_SERVICE: "woocrm6_frontend"
       TRAEFIK_ROUTER_LABEL_PREFIX: "nexus360_custom"
       TRAEFIK_DOCKER_NETWORK: "wootech1"
       DOCKER_SOCKET_PATH: "/var/run/docker.sock"
