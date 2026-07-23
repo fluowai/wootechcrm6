@@ -13,16 +13,10 @@ ENV GONOSUMDB=*
 ENV GONOSUMCHECK=*
 ENV GOFLAGS=-mod=mod
 
-# Copy go.mod and go.sum first for better layer caching
 COPY go.mod go.sum ./
-
-# Download dependencies (cached unless go.mod/go.sum change)
 RUN go mod download
 
-# Copy source code
 COPY . .
-
-# Build the binary
 RUN go build -o whatsmeow-service main.go
 
 # ==========================================
@@ -34,8 +28,14 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
+# Create instances directory for multi-instance data
+RUN mkdir -p /app/instances
+
 COPY --from=builder /app/whatsmeow-service ./whatsmeow-service
 
 EXPOSE 8080
+
+# DATA_DIR points to persistent volume for instance SQLite stores
+ENV DATA_DIR=/app/instances
 
 CMD ["./whatsmeow-service"]

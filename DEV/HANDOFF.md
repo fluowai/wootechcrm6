@@ -1,5 +1,66 @@
 # Handoff — AI-BOS Project
 
+## WhatsApp Multi-Instance (Em Progresso)
+
+### Fase 1: Database Schema ✅
+- `DEV/SQL/wa-instances-schema.sql` — Migration executada com sucesso
+- Tabelas: `whatsapp_instances`, `wa_instance_links`, `wa_messages`
+- RLS, indexes, triggers todos configurados
+
+### Fase 2: Go Service Multi-Instance ✅
+- `whatsapp-service/main.go` — Reescrito com `Manager` + `Instance` structs
+- Multi-instância: `map[string]*Instance` com SQLite por instância (`instances/{id}/store.db`)
+- Auto-load: instâncias existentes são reconectadas ao iniciar
+- Webhook com `instance_id` no payload
+- Rotas legacy mantidas para backward compat (apontam para primeira instância)
+- Dockerfile atualizado com `DATA_DIR=/app/instances`
+- docker-compose: volume `whatsapp_data:/app/instances`, env `WEBHOOK_URL`
+- Build verificado: `whatsmeow-service.exe` (30MB)
+
+### Fase 3: API Layer Node.js ✅
+- `src/routes/whatsapp-instances.ts` — Router factory com Socket.io
+  - CRUD: GET/POST/PATCH/DELETE `/instances`
+  - Connect/Disconnect/Reconnect: POST `/instances/:id/connect|disconnect|reconnect`
+  - Send: POST `/instances/:id/send` (persiste outbound no Supabase)
+  - Messages: GET `/instances/:id/messages` (histórico do Supabase)
+  - Chats: GET `/instances/:id/chats` (distinct chats)
+  - Validate: GET `/instances/:id/validate`
+  - QR: GET `/instances/:id/qr`
+  - Links CRUD: GET/POST/DELETE `/instances/:id/links`
+  - Webhook: POST `/instances/webhook` (persiste inbound + Socket.io emit)
+  - Reconnect-all: POST `/instances/reconnect-all`
+- `server.ts` — Router montado em `/api/whatsapp/instances`
+- `src/types/index.ts` — WhatsAppInstance, WhatsAppInstanceLink, WhatsAppInstanceMessage
+- `src/lib/supabase.ts` — Database types para 3 novas tabelas
+
+### Fase 4: Frontend Multi-Instance UI ✅
+- `src/components/whatsapp/WhatsAppView.tsx` — View reescrita com 3 abas (Instâncias, Mensagens, Validador)
+- `src/components/whatsapp/InstanceList.tsx` — CRUD de instâncias com auto-refresh, stats, create modal, reconnect all
+- `src/components/whatsapp/InstanceCard.tsx` — Card visual com status colors, actions, phone number, last connected
+- `src/components/whatsapp/QrCodeModal.tsx` — Modal QR com SVG rendering, polling (5s), timeout (2min), connected detection
+- `src/components/whatsapp/LinkModal.tsx` — CRUD vínculos com 5 service types (AI Agent, Automação, Chatbot, Broadcast, Webhook)
+- `src/lib/whatsapp-api.ts` — Cliente API com 15 funções type-safe
+- `tsc --noEmit`: 0 errors
+
+### Fase 5: MessagesView Refactor ✅
+- `src/components/whatsapp/MessagesView.tsx` — Self-contained: carrega chats do Supabase, histórico com paginação, merge com Socket.io real-time, dedup, auto-scroll, busca
+- `src/lib/whatsapp-api.ts` — Adicionado `getChats()` + `ChatSummary` type
+- `src/components/whatsapp/WhatsAppView.tsx` — Simplificado (400→130 linhas), usa `<MessagesView />`
+- `tsc --noEmit`: 0 errors
+
+### Fase 6: ServiceLinks Improvements ✅
+- `src/components/whatsapp/LinkModal.tsx` — Service Picker (dropdown com busca), Config per type (5 tipos com campos específicos), Validation (campos obrigatórios, URL, numérico), Config display em links existentes
+- `src/lib/whatsapp-api.ts` — Adicionado `getAvailableAgents()`, `getAvailableAutomations()`, `ServiceOption` type
+- `tsc --noEmit`: 0 errors
+
+### Próximas Fases
+- **Fase 4**: Frontend — Aba Conexões ✅
+- **Fase 5**: Frontend — Aba Mensagens refactor ✅
+- **Fase 6**: Frontend — Vínculos com serviços ✅
+- **Todas as fases completas** ✅
+
+---
+
 ## O Que Foi Feito (TODAS AS FASES COMPLETAS + Hermes/Jarvis Integration)
 
 ### Phase 1: Foundation ✅
@@ -62,6 +123,13 @@
 - `src/routes/jarvis.ts` — Jarvis AI routes (NEW)
 
 ### Frontend
+- `src/components/whatsapp/WhatsAppView.tsx` — View reescrita com 3 abas (Instâncias, Mensagens, Validador)
+- `src/components/whatsapp/InstanceList.tsx` — CRUD de instâncias com auto-refresh
+- `src/components/whatsapp/InstanceCard.tsx` — Card visual com status e actions
+- `src/components/whatsapp/QrCodeModal.tsx` — Modal QR com polling e SVG
+- `src/components/whatsapp/MessagesView.tsx` — Chat UI com histórico Supabase + Socket.io real-time
+- `src/components/whatsapp/LinkModal.tsx` — CRUD vínculos com Service Picker, config per type, validation
+- `src/lib/whatsapp-api.ts` — Cliente API reutilizável (18 funções + ServiceOption type)
 - `src/components/aios/AICenterView.tsx` — Main container (7 tabs)
 - `src/components/aios/OnboardingView.tsx` — Company setup wizard
 - `src/components/aios/AgentForm.tsx` — Agent CRUD form
@@ -77,13 +145,14 @@
 - `server.ts` — Mounted hermes/jarvis routers, updated healthcheck
 
 ## Próximos Passos (Pós-Deploy)
-1. Rodar migration SQL no Supabase
+1. ~~Rodar migration SQL no Supabase~~ ✅ (AIOS + WA multi-instance)
 2. Configurar chaves de API dos LLMs no .env
 3. Deploy com `./deploy/deploy-aios.sh`
 4. Verificar Hermes dashboard em http://localhost:9119
 5. Verificar Jarvis dashboard em http://localhost:8443
 6. Testar fluxo completo de onboarding
 7. Monitorar execution engine nos logs
+8. **WhatsApp Fase 2**: Refatorar Go service multi-instance
 
 ## Decisões Chave
 - 12 provedores LLM gratuitos integrados + Hermes (gateway mode)

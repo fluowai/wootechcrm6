@@ -13,6 +13,7 @@
 
 ### SQL
 - `SQL/aios-schema.sql` — Database migrations for AIOS tables
+- `SQL/wa-instances-schema.sql` — WhatsApp multi-instance schema (whatsapp_instances, wa_instance_links, wa_messages)
 
 ### Backlog
 - `BACKLOG/tasks.md` — Task breakdown per phase

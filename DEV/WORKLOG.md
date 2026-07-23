@@ -1,5 +1,186 @@
 # Worklog — AI-BOS Project
 
+## 2026-07-23 — WhatsApp Multi-Instance Schema (Fase 1) ✅
+
+### Changed
+- **SQL Migration**: `DEV/SQL/wa-instances-schema.sql` — 3 tabelas criadas no Supabase:
+  - `whatsapp_instances` — Instâncias WhatsApp multi-tenant
+  - `wa_instance_links` — Vínculos instância ↔ serviços
+  - `wa_messages` — Histórico persistente de mensagens
+- **RLS Policies**: 13 políticas (CRUD por user_id + service_role bypass)
+- **Indexes**: 9 índices para performance
+- **Trigger**: `update_whatsapp_instances_updated_at`
+
+### Verified
+- 3 tabelas, 13 policies, 9 indexes confirmados via information_schema/pg_policies
+
+---
+
+## 2026-07-23 — Go Service Multi-Instance (Fase 2) ✅
+
+### Changed
+- **whatsapp-service/main.go**: Reescrito completamente
+  - `Instance` struct: client, store, status, QR, mutex per-instance
+  - `Manager` struct: `map[string]*Instance`, dataDir, webhookURL
+  - SQLite por instância: `instances/{id}/store.db`
+  - Auto-load: instâncias existentes reconectadas ao iniciar
+  - Event handler factory: `makeEventHandler(instanceID)` — cada instância tem seu handler
+  - Webhook com `instanceId` no payload
+  - 15+ rotas HTTP: `/instances` CRUD, `/:id/connect`, `/:id/send`, `/:id/reconnect`, etc.
+  - Legacy routes: `/status`, `/send`, `/validate`, `/disconnect` mantidos (first-instance fallback)
+  - Graceful shutdown: desconecta todas as instâncias
+- **Dockerfile**: `DATA_DIR=/app/instances`, diretório criado em build
+- **docker-compose.yml**: Volume `whatsapp_data:/app/instances`, env `WEBHOOK_URL`, `DATA_DIR`
+
+### Verified
+- `go build` compilation: success (30MB binary)
+
+---
+
+## 2026-07-23 — API Layer Node.js (Fase 3) ✅
+
+### Changed
+- **src/routes/whatsapp-instances.ts**: Router factory com Socket.io
+  - CRUD: GET/POST/PATCH/DELETE `/instances`
+  - Connect/Disconnect/Reconnect: POST com proxy ao Go
+  - Send: POST com persistência de mensagens outbound
+  - Messages: GET com paginação e filtro por chatJid
+  - Chats: GET com distinct chats (fallback sem RPC)
+  - Validate/QR: proxy ao Go
+  - Links CRUD: GET/POST/DELETE para vínculos com serviços
+  - Webhook: POST que persiste inbound + emite Socket.io (global + por instância)
+  - Reconnect-all: POST em lote
+- **server.ts**: Import + mount em `/api/whatsapp/instances`
+- **src/types/index.ts**: WhatsAppInstance, WhatsAppInstanceLink, WhatsAppInstanceMessage
+- **src/lib/supabase.ts**: Database types para whatsapp_instances, wa_instance_links, wa_messages
+
+### Verified
+- `tsc --noEmit`: 0 errors
+
+### Next
+- Fase 4: Frontend — Aba Conexões (ConnectionsTab.tsx)
+
+## 2026-07-23 — Frontend Multi-Instance UI (Fase 4) ✅
+
+### Changed
+- **src/components/whatsapp/InstanceCard.tsx**: Card visual por instância
+  - Status colors: connected (emerald), disconnected (slate), connecting (amber), qr_pending (blue), logged_out (red)
+  - Left border accent for connected/QR/logged_out states
+  - Actions: connect, disconnect, reconnect, show QR, open links, delete
+  - Phone number display, last connected timestamp
+- **src/components/whatsapp/InstanceList.tsx**: Aba de conexões com CRUD
+  - Fetch + auto-refresh (15s interval)
+  - InstanceCard grid with action loading states
+  - Create modal (name + description)
+  - Reconnect all button
+  - Stats: connected/disconnected counts
+  - Empty state with CTA
+  - Integrates QrCodeModal and LinkModal per-instance
+- **src/components/whatsapp/QrCodeModal.tsx**: Modal QR com polling
+  - SVG rendering via dangerouslySetInnerHTML
+  - Auto-polling every 5s via whatsapp-api
+  - Timeout after 2min with error state
+  - Connected state detection
+  - Refresh button on error
+- **src/components/whatsapp/LinkModal.tsx**: CRUD vínculos instância↔serviço
+  - 5 service types: AI Agent, Automação, Chatbot, Broadcast, Webhook
+  - Icon + color per service type
+  - Create form with type selector, service ID, name
+  - Delete with confirmation
+- **src/lib/whatsapp-api.ts**: Cliente API reutilizável
+  - 15 funções: list, create, get, update, delete, connect, disconnect, reconnect, reconnectAll, getQR, sendMessage, validateNumber, getMessages, getLinks, createLink, deleteLink
+  - Type-safe with WhatsAppInstance, WhatsAppInstanceLink, WhatsAppInstanceMessage
+- **src/components/whatsapp/WhatsAppView.tsx**: View reescrita com 3 abas
+  - Tab "Instâncias": InstanceList (CRUD + QR + links)
+  - Tab "Mensagens": Chat UI com instance selector, Socket.io real-time
+  - Tab "Validador": Number validator
+  - Instance selector dropdown for messages tab
+  - Socket.io filters events by selected instance
+  - Send via whatsapp-api instead of raw fetch
+
+### Verified
+- `tsc --noEmit`: 0 errors
+- All 5 components compile and integrate correctly
+- whatsapp-api.ts fixed: Record generic syntax error corrected
+
+### Files
+- `src/components/whatsapp/InstanceCard.tsx`
+- `src/components/whatsapp/InstanceList.tsx`
+- `src/components/whatsapp/QrCodeModal.tsx`
+- `src/components/whatsapp/LinkModal.tsx`
+- `src/lib/whatsapp-api.ts`
+- `src/components/whatsapp/WhatsAppView.tsx`
+
+### Next
+- Fase 5: MessagesTab refactor (history from Supabase, instance-scoped Socket.io)
+- Fase 6: ServiceLinks improvements (config per type, validation)
+
+## 2026-07-23 — MessagesView Refactor (Fase 5) ✅
+
+### Changed
+- **src/components/whatsapp/MessagesView.tsx**: Novo componente self-contained para mensagens
+  - **Carrega chats do Supabase**: `getChats()` → lista de conversas persistentes
+  - **Carrega histórico**: `getMessages()` com paginação (50 msgs por vez, load more)
+  - **Socket.io real-time**: merge inteligente com histórico (dedup por content+sender+2s)
+  - **Instance-scoped**: filtra eventos Socket.io por `instanceId`
+  - **Chat list**: busca por nome/número, avatar via UI Avatars, unread badges, group indicator
+  - **Conversa**: header com contato, mensagens com timestamps, auto-scroll, input com loading state
+  - **Pagination**: "Carregar mensagens anteriores" button
+  - **Connection indicator**: dot verde/cinza para status Socket.io
+- **src/lib/whatsapp-api.ts**: Adicionado `getChats()` + `ChatSummary` type
+  - GET `/instances/:id/chats` → retorna distinct chats do Supabase
+- **src/components/whatsapp/WhatsAppView.tsx**: Simplificado
+  - Removido chat UI inline (~200 linhas removidas)
+  - Tab "Mensagens" agora usa `<MessagesView instance={...} />`
+  - WhatsAppView ficou com ~130 linhas (era ~400)
+
+### Verified
+- `tsc --noEmit`: 0 errors
+- MessagesView compila e integra corretamente com WhatsAppView
+- Histórico do Supabase + real-time Socket.io funcionando
+
+### Files
+- `src/components/whatsapp/MessagesView.tsx` (novo, ~560 linhas)
+- `src/lib/whatsapp-api.ts` (atualizado: +getChats)
+- `src/components/whatsapp/WhatsAppView.tsx` (simplificado)
+
+### Next
+- Fase 6: ServiceLinks improvements (config per type, validation)
+
+## 2026-07-23 — ServiceLinks Improvements (Fase 6) ✅
+
+### Changed
+- **src/components/whatsapp/LinkModal.tsx**: Refatorado com recursos avançados
+  - **Service Picker**: Para ai_agent e automation, busca serviços disponíveis via API e mostra dropdown com busca
+  - **Config per type**: Cada tipo de serviço tem campos de configuração específicos:
+    - `ai_agent`: greeting_message, allowed_hours, max_daily_conversations
+    - `automation`: trigger_event (select), delay_seconds
+    - `chatbot`: welcome_message, fallback_message, human_handoff_threshold
+    - `broadcast`: segment (select), schedule_cron, max_per_day
+    - `webhook`: url (required), secret, events (select)
+  - **Validation**: Campos obrigatórios por tipo, validação de URL, validação numérica
+  - **Config display**: Links existentes mostram config formatada
+  - **Better UX**: Formulário com seção "Configuração" separada, errors inline
+- **src/lib/whatsapp-api.ts**: Adicionados `getAvailableAgents()`, `getAvailableAutomations()`, `ServiceOption` type
+
+### Verified
+- `tsc --noEmit`: 0 errors
+- Service Picker busca de `/api/ai-os/agents` e `/api/ai-os/automations`
+- Config fields renderizam corretamente por tipo
+- Validation impede criação com campos obrigatórios faltando
+
+### Files
+- `src/components/whatsapp/LinkModal.tsx` (refatorado, ~565 linhas)
+- `src/lib/whatsapp-api.ts` (atualizado: +getAvailableAgents, +getAvailableAutomations, +ServiceOption)
+
+### All Phases Complete ✅
+- Fase 1: Database Schema ✅
+- Fase 2: Go Service Multi-Instance ✅
+- Fase 3: API Layer Node.js ✅
+- Fase 4: Frontend (Conexões + QR + Vínculos) ✅
+- Fase 5: MessagesView (Histórico Supabase + Socket.io) ✅
+- Fase 6: ServiceLinks (Config per type + validation + service picker) ✅
+
 ## 2026-07-23 — Hermes + Jarvis Integration
 
 ### Changed

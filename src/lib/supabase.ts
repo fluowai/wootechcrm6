@@ -182,6 +182,58 @@ export type Database = {
         Insert: Omit<Database['public']['Tables']['automations']['Row'], 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Database['public']['Tables']['automations']['Insert']>;
       };
+      whatsapp_instances: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          description: string | null;
+          phone_number: string | null;
+          status: string;
+          qr_code: string | null;
+          webhook_secret: string | null;
+          settings: any;
+          last_connected_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['whatsapp_instances']['Row'], 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Database['public']['Tables']['whatsapp_instances']['Insert']>;
+      };
+      wa_instance_links: {
+        Row: {
+          id: string;
+          instance_id: string;
+          service_type: string;
+          service_id: string;
+          service_name: string | null;
+          config: any;
+          active: boolean;
+          created_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['wa_instance_links']['Row'], 'id' | 'created_at'>;
+        Update: Partial<Database['public']['Tables']['wa_instance_links']['Insert']>;
+      };
+      wa_messages: {
+        Row: {
+          id: string;
+          instance_id: string;
+          chat_jid: string;
+          sender_jid: string;
+          sender_name: string | null;
+          content: string | null;
+          message_type: string;
+          is_group: boolean;
+          group_name: string | null;
+          direction: string;
+          status: string;
+          timestamp: string;
+          raw_event: any;
+          created_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['wa_messages']['Row'], 'id' | 'created_at'>;
+        Update: Partial<Database['public']['Tables']['wa_messages']['Insert']>;
+      };
     };
   };
 };

@@ -172,6 +172,49 @@ export interface WhatsAppSession {
   updatedAt: string;
 }
 
+export interface WhatsAppInstance {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  phoneNumber?: string;
+  status: 'connected' | 'disconnected' | 'connecting' | 'qr_pending' | 'logged_out';
+  qrCode?: string;
+  webhookSecret?: string;
+  settings: Record<string, any>;
+  lastConnectedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WhatsAppInstanceLink {
+  id: string;
+  instanceId: string;
+  serviceType: 'ai_agent' | 'automation' | 'chatbot' | 'broadcast' | 'webhook';
+  serviceId: string;
+  serviceName?: string;
+  config: Record<string, any>;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface WhatsAppInstanceMessage {
+  id: string;
+  instanceId: string;
+  chatJid: string;
+  senderJid: string;
+  senderName?: string;
+  content?: string;
+  messageType: 'text' | 'image' | 'audio' | 'video' | 'document' | 'sticker' | 'location' | 'contact';
+  isGroup: boolean;
+  groupName?: string;
+  direction: 'inbound' | 'outbound';
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
+  timestamp: string;
+  rawEvent?: any;
+  createdAt: string;
+}
+
 export interface WhatsAppMessage {
   id: string;
   chatId: string;

@@ -12,6 +12,7 @@ import aiOsRouter from "./src/routes/ai-os.js";
 import aiOsToolsRouter from "./src/routes/aios-tools.js";
 import hermesRouter from "./src/routes/hermes.js";
 import jarvisRouter from "./src/routes/jarvis.js";
+import createWhatsAppInstancesRouter from "./src/routes/whatsapp-instances.js";
 import { initWebSocket } from "./src/lib/websocket-events.js";
 import { runExecutionEngine } from "./src/lib/execution-engine.js";
 import { loadProviderKeysFromDB } from "./src/lib/llm-router.js";
@@ -135,6 +136,11 @@ app.use("/api/ai-os", aiOsRouter);
 app.use("/api/ai-os/tools", aiOsToolsRouter);
 app.use("/api/ai-os/hermes", hermesRouter);
 app.use("/api/ai-os/jarvis", jarvisRouter);
+
+// =================================================================
+// WHATSAPP MULTI-INSTANCE (Instances CRUD + Webhook + Service Links)
+// =================================================================
+app.use("/api/whatsapp/instances", createWhatsAppInstancesRouter(io));
 
 // =================================================================
 // SUPABASE PASSTHROUGH
