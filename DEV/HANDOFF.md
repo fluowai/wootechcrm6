@@ -149,14 +149,19 @@
 - `server.ts` — Mounted hermes/jarvis routers, updated healthcheck
 
 ## Próximos Passos (Pós-Deploy)
-1. ~~Rodar migration SQL no Supabase~~ ✅ (AIOS + WA multi-instance)
-2. Configurar chaves de API dos LLMs no .env
-3. Deploy com `./deploy/deploy-aios.sh`
-4. Verificar Hermes dashboard em http://localhost:9119
-5. Verificar Jarvis dashboard em http://localhost:8443
-6. Testar fluxo completo de onboarding
-7. Monitorar execution engine nos logs
-8. ~~WhatsApp Fase 2: Refatorar Go service multi-instance~~ ✅
+
+1. **Rodar SQL consolidado no Supabase dev** (`omxbbhxrwftcklmsaasa`)
+   - Arquivo: `DEV/SQL/full-schema-consolidated.sql` (630 linhas, 20 tabelas)
+   - Copiar e colar no SQL Editor do Supabase → Run
+   - Idempotent: seguro para re-executar (usa IF NOT EXISTS)
+2. Criar conta de usuário no Supabase Auth para teste
+3. Configurar `SUPABASE_URL` e `SUPABASE_ANON_KEY` para o dev Supabase
+4. Configurar chaves de API dos LLMs no .env
+5. Deploy com `./deploy/deploy-aios.sh`
+6. Verificar Hermes dashboard em http://localhost:9119
+7. Verificar Jarvis dashboard em http://localhost:8443
+8. Testar fluxo completo de onboarding
+9. Monitorar execution engine nos logs
 
 ## Decisões Chave
 - 12 provedores LLM gratuitos integrados + Hermes (gateway mode)

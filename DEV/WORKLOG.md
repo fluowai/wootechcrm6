@@ -340,6 +340,31 @@
 
 ---
 
+## 2026-07-23 — Consolidated SQL for Supabase Dev
+
+### Changed
+- **DEV/SQL/full-schema-consolidated.sql**: Script SQL consolidado completo
+  - 20 tabelas: 7 CRM + 8 AI-BOS + 3 WA Multi-Instance + 2 Infra
+  - 34 índices
+  - 79+ políticas RLS (user-scoped + service_role bypass)
+  - 12 triggers updated_at + 1 trigger auth provisioning
+  - 2 funções: `update_updated_at_column()`, `handle_new_user()`
+  - Idempotent: `IF NOT EXISTS` em todos os objetos
+  - Source schemas: `001_initial_schema.sql` (CRM), `aios-schema.sql` (AI-BOS), `wa-instances-schema.sql` (WA), `init.sql` (Infra)
+- **DEV/HANDOFF.md**: Atualizado com próximos passos
+
+### Verified
+- 20 CREATE TABLE statements confirmados
+- 79 CREATE POLICY statements confirmados
+- Fix: typo `ONpublic` → `ON public` corrigido
+
+### Next
+- Colar `DEV/SQL/full-schema-consolidated.sql` no SQL Editor do Supabase dev (`omxbbhxrwftcklmsaasa`)
+- Criar usuário no Supabase Auth
+- Configurar env vars para dev Supabase
+
+---
+
 ## 2026-07-23 — Infrastructure Alignment: docker-compose.yml → Produção ✅
 
 ### Changed
