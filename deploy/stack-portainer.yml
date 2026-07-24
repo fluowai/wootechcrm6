@@ -17,18 +17,18 @@ services:
       TRAEFIK_CERT_RESOLVER: "letsencryptresolver"
       TRAEFIK_DOCKER_NETWORK: "wootech1"
       DOCKER_SOCKET_PATH: "/var/run/docker.sock"
-      DATABASE_URL: "postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0"
-      DIRECT_URL: "postgresql://postgres:Q8YvwfX28WWhW3dz@db.ywvhfgvlnbigfmerilcq.supabase.co:5432/postgres?sslmode=require&schema=public"
-      SUPABASE_DB_URL: "postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0"
+      DATABASE_URL: "postgresql://postgres.omxbbhxrwftcklmsaasa:UzrVZyiiBwohfOA1@aws-0-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0"
+      DIRECT_URL: "postgresql://postgres:UzrVZyiiBwohfOA1@db.omxbbhxrwftcklmsaasa.supabase.co:5432/postgres?sslmode=require&schema=public"
+      SUPABASE_DB_URL: "postgresql://postgres.omxbbhxrwftcklmsaasa:UzrVZyiiBwohfOA1@aws-0-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0"
       PGSSLMODE: "require"
-      JWT_SECRET: "MTluDh9gIwUTonk9op8kRc3B/cYihNKj2RYPL8+0D1F6iCykx2shnfvPJLmJsJ/cn0z81JFY52G5os0hFjokuQ=="
-      SUPABASE_URL: "https://ywvhfgvlnbigfmerilcq.supabase.co"
-      SUPABASE_REST_URL: "https://ywvhfgvlnbigfmerilcq.supabase.co/rest/v1"
-      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3dmhmZ3ZsbmJpZ2ZtZXJpbGNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDYyOTEsImV4cCI6MjA5MzA4MjI5MX0.2FezfFHWhx7aXYKCTORnvDXeEDfshzHvzyiA9DMP5vs"
-      VITE_SUPABASE_URL: "https://ywvhfgvlnbigfmerilcq.supabase.co"
-      VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3dmhmZ3ZsbmJpZ2ZtZXJpbGNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MDYyOTEsImV4cCI6MjA5MzA4MjI5MX0.2FezfFHWhx7aXYKCTORnvDXeEDfshzHvzyiA9DMP5vs"
-      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3dmhmZ3ZsbmJpZ2ZtZXJpbGNxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzUwNjI5MSwiZXhwIjoyMDkzMDgyMjkxfQ.wIihcD0zm4rqQwvur7Smzy3-5sc0YJgTWwSQR5u47AE"
-      SUPABASE_JWT_SECRET: "MTluDh9gIwUTonk9op8kRc3B/cYihNKj2RYPL8+0D1F6iCykx2shnfvPJLmJsJ/cn0z81JFY52G5os0hFjokuQ=="
+      JWT_SECRET: "gzLMVjICNir/0sENLgoi3MNceYz+kMPdr8IAkiEbw7rfrjnpffvhqWwu+PkUB14JrpliFdD4e0n+kZGoE9NmvQ=="
+      SUPABASE_URL: "https://omxbbhxrwftcklmsaasa.supabase.co"
+      SUPABASE_REST_URL: "https://omxbbhxrwftcklmsaasa.supabase.co/rest/v1"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGJiaHhyd2Z0Y2tsbXNhYXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDk2MzQsImV4cCI6MjEwMDMyNTYzNH0.NlZwUOf7OXkrNPxbwlhFr-Zo7cEw9nrnQoaBBjXAdHM"
+      VITE_SUPABASE_URL: "https://omxbbhxrwftcklmsaasa.supabase.co"
+      VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGJiaHhyd2Z0Y2tsbXNhYXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDk2MzQsImV4cCI6MjEwMDMyNTYzNH0.NlZwUOf7OXkrNPxbwlhFr-Zo7cEw9nrnQoaBBjXAdHM"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGJiaHhyd2Z0Y2tsbXNhYXNhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDc0OTYzNCwiZXhwIjoyMTAwMzI1NjM0fQ.V07J9q1nn0ezuWLgvm0GcBvQ_zHsOuFv6CsEWu949b0"
+      SUPABASE_JWT_SECRET: "gzLMVjICNir/0sENLgoi3MNceYz+kMPdr8IAkiEbw7rfrjnpffvhqWwu+PkUB14JrpliFdD4e0n+kZGoE9NmvQ=="
 
       # ── Integração Inteligência Comercial ────────────────────────
       REDIS_URL: "redis://cache-redis:6379"
@@ -149,7 +149,7 @@ services:
     environment:
       - PORT=4000
       - REDIS_URL=redis://cache-redis:6379
-      - DATABASE_URL=postgresql://postgres.ywvhfgvlnbigfmerilcq:Q8YvwfX28WWhW3dz@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0
+      - DATABASE_URL=postgresql://postgres.omxbbhxrwftcklmsaasa:UzrVZyiiBwohfOA1@aws-0-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&statement_cache_size=0
     networks:
       - wootechcrm6_internal
     deploy:
