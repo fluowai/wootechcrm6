@@ -32,13 +32,8 @@ services:
 
       # ── Integração Inteligência Comercial ────────────────────────
       REDIS_URL: "redis://cache-redis:6379"
-      SCRAPER_API_URL: "${SCRAPER_API_URL:-http://google-maps-scraper:8080}"
-      GOOGLE_MAPS_SCRAPER_URL: "${SCRAPER_API_URL:-http://google-maps-scraper:8080}"
-      GOOGLE_MAPS_SCRAPER_CONCURRENCY: "2"
-      GOOGLE_MAPS_SCRAPER_JOB_TIMEOUT_MS: "240000"
       WHATSAPP_BRIDGE_URL: "http://whatsapp-bridge:8091"
-      WHATSAPP_API_URL: "http://whatsapp-bridge:8091"
-      WHATSAPP_BRIDGE_SECRET: "${WHATSAPP_BRIDGE_SECRET:-dev-whatsapp-bridge-secret}"
+      WHATSAPP_BRIDGE_SECRET: "wootech-wa-bridge-prod-2026"
       BROWSERLESS_URL: "ws://browserless:3000"
       BROWSERLESS_TOKEN: "wootech-prod-token"
 
@@ -101,7 +96,7 @@ services:
     image: ghcr.io/fluowai/wootechcrm6-whatsapp:latest
     environment:
       WHATSAPP_BRIDGE_ADDR: ":8091"
-      WHATSAPP_BRIDGE_SECRET: "${WHATSAPP_BRIDGE_SECRET:-dev-whatsapp-bridge-secret}"
+      WHATSAPP_BRIDGE_SECRET: "wootech-wa-bridge-prod-2026"
       WHATSAPP_BRIDGE_PUBLIC_URL: "https://crm.wootech.com.br"
       NEXUS_BACKEND_URL: "http://backend:10000"
       REDIS_URL: "redis://cache-redis:6379"
